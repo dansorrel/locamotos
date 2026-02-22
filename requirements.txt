@@ -1,0 +1,8 @@
+streamlit
+pandas
+python-dotenv
+pymysql
+requests
+cryptography
+Pillow
+Werkzeug

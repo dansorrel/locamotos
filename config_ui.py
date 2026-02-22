@@ -1,0 +1,1319 @@
+import streamlit as st
+import os
+import datetime
+import pandas as pd
+from database_manager import DatabaseManager
+from auth import hash_password, verify_password, is_strong_password
+from frota_ui import frota_tab
+from locatarios_ui import locatarios_tab
+from dotenv import load_dotenv
+
+DOTENV_FILE = ".env"
+CERTS_DIR = "certs"
+
+# --- Utility Functions ---
+
+def load_env_vars():
+    # Still load native .env for baseline DB connections
+    load_dotenv()
+    db = DatabaseManager()
+    db_configs = db.get_all_configs()
+    
+    # Merge os.environ with the persistent database configs (DB overrides .env)
+    merged_env = dict(os.environ)
+    merged_env.update(db_configs)
+    
+    # Also inject them back to os.environ so other modules like asaas_client.py 
+    # relying strictly on os.getenv can find them without code changes!
+    for k, v in db_configs.items():
+        os.environ[k] = str(v)
+        
+    return merged_env
+
+def save_env_var(key, value):
+    db = DatabaseManager()
+    db.set_config(key, value)
+    os.environ[key] = str(value)
+
+def format_currency(value):
+    try:
+        val = float(value)
+        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
+        return value
+
+def init_session_state():
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+        
+        # Check for 60-day auto-login
+        env_vars = load_env_vars()
+        remembered_user = env_vars.get("REMEMBERED_USER", "")
+        last_login_str = env_vars.get("LAST_LOGIN", "")
+        
+        if remembered_user and last_login_str:
+            try:
+                last_login = datetime.datetime.fromisoformat(last_login_str)
+                if (datetime.datetime.now() - last_login).days <= 60:
+                    db = DatabaseManager()
+                    user = db.get_user_by_username(remembered_user)
+                    if user and user[6] == "aprovado":
+                        st.session_state.logged_in = True
+                        st.session_state.user_id = user[0]
+                        st.session_state.user_name = user[1]
+                        st.session_state.user_role = user[5]
+                        st.session_state.user_permissions = user[7]
+            except Exception:
+                pass
+                
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = None
+    if "user_name" not in st.session_state:
+        st.session_state.user_name = None
+    if "user_role" not in st.session_state:
+        st.session_state.user_role = None
+    if "user_permissions" not in st.session_state:
+        st.session_state.user_permissions = ""
+
+def do_login(username_login, password, lembrar_user):
+    db = DatabaseManager()
+    user = db.get_user_by_username(username_login)
+    if user:
+        user_id, nome, username_db, email_db, senha_hash, papel, status, permissoes, created_at = user
+        if verify_password(senha_hash, password):
+            if status == "aprovado":
+                if lembrar_user:
+                    save_env_var("REMEMBERED_USER", username_db)
+                    save_env_var("LAST_LOGIN", datetime.datetime.now().isoformat())
+                else:
+                    save_env_var("REMEMBERED_USER", "")
+                    save_env_var("LAST_LOGIN", "")
+                    
+                st.session_state.logged_in = True
+                st.session_state.user_id = user_id
+                st.session_state.user_name = nome
+                st.session_state.user_role = papel
+                st.session_state.user_permissions = permissoes
+                st.rerun()
+            elif status == "bloqueado":
+                st.error("Conta bloqueada. Contate o administrador.")
+            else:
+                st.warning("Seu cadastro ainda está pendente de aprovação pelo administrador.")
+        else:
+            st.error("Senha incorreta.")
+    else:
+        st.error("Usuário não encontrado.")
+
+def do_logout():
+    st.session_state.logged_in = False
+    st.session_state.user_id = None
+    st.session_state.user_name = None
+    st.session_state.user_role = None
+    st.session_state.user_permissions = ""
+    st.rerun()
+
+# --- Auth Screens ---
+
+def login_register_screen():
+    st.title("Locamotos - Acesso Restrito")
+    env_vars = load_env_vars()
+    
+    st.header("Entrar no Sistema")
+    with st.form("login_form"):
+        lembrado = env_vars.get("REMEMBERED_USER", "")
+        username_login = st.text_input("Usuário", value=lembrado)
+        pass_login = st.text_input("Senha", type="password")
+        lembrar_user = st.checkbox("Lembrar meu usuário", value=bool(lembrado))
+        
+        submitted_login = st.form_submit_button("Entrar")
+        if submitted_login:
+            if username_login and pass_login:
+                do_login(username_login, pass_login, lembrar_user)
+            else:
+                st.error("Preencha todos os campos.")
+                
+    st.info("⚠️ Acesso restrito a usuários autorizados. Se você esqueceu sua senha ou precisa de acesso, contate o administrador.")
+
+# --- Dashboard Modules ---
+
+def change_tab_state(tab):
+    st.session_state.active_tab = tab
+
+def dashboard_tab():
+    st.header("Dashboard Gerencial")
+    
+    st.subheader("Módulos Rápidos (Em Tempo Real)")
+    
+    db = DatabaseManager()
+    
+    # --- Live Metrics Gathering ---
+    hoje = datetime.date.today()
+    try:
+        from inter_client import InterClient
+        # Inter API returns a dict, getting the 'disponivel' key
+        balance_data = InterClient().get_balance()
+        saldo_inter = float(balance_data.get('disponivel', 0.0))
+    except Exception:
+        saldo_inter = 0.0
+
+    # Asaas Metrics for Dashboard
+    try:
+        from asaas_client import AsaasClient
+        ac = AsaasClient()
+        saldo_asaas = ac.get_balance()
+        # Get payments for counts (last 30 days)
+        h_asaas = datetime.date.today()
+        s_asaas = (h_asaas - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+        e_asaas = h_asaas.strftime("%Y-%m-%d")
+        pgs_asaas = ac.get_all_payments(s_asaas, e_asaas)
+        
+        asaas_pagos = len([p for p in pgs_asaas if p.get('status') in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"]])
+        asaas_vencidos = len([p for p in pgs_asaas if p.get('status') == "OVERDUE"])
+        asaas_count_cust = len(ac.get_customers())
+    except Exception:
+        saldo_asaas = 0.0
+        asaas_pagos = 0
+        asaas_vencidos = 0
+        asaas_count_cust = 0
+
+    # Frota
+    try:
+        motos_list = db.get_all_motos()
+        locacoes = db.get_active_rentals()
+        total_motos = len(motos_list)
+        motos_alugadas = len(locacoes)
+        motos_disp = total_motos - motos_alugadas
+    except Exception:
+        total_motos = motos_alugadas = motos_disp = 0
+        
+    # Locatários Ativos
+    try:
+        locat_list = db.get_locatarios_list() # id, nome, cpf, tel, placa
+        locat_ativos = len([l for l in locat_list if l[4]])
+    except Exception:
+        locat_ativos = 0
+        
+    all_txs = db.get_transactions()
+    
+    rec_mes_pend = 0.0
+    desp_hoje = 0.0
+    desp_mes = 0.0
+    velo_pend = 0.0
+    velo_count = 0
+    
+    if all_txs:
+        df_live = pd.DataFrame(all_txs, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
+        df_live["Data"] = pd.to_datetime(df_live["Data"])
+        
+        # Receitas
+        mask_rec_pend = (df_live["Tipo"].isin(["entrada", "entrada_liquida"])) & (df_live["Status"] == "pendente")
+        rec_mes_pend = df_live[mask_rec_pend & (df_live["Data"].dt.month == hoje.month) & (df_live["Data"].dt.year == hoje.year)]["Valor"].sum()
+        
+        # Despesas
+        mask_desp_pend = (df_live["Tipo"] == "saida") & (df_live["Status"] == "pendente")
+        desp_hoje = df_live[mask_desp_pend & (df_live["Data"].dt.date == hoje)]["Valor"].sum()
+        desp_mes = df_live[mask_desp_pend & (df_live["Data"].dt.month == hoje.month) & (df_live["Data"].dt.year == hoje.year)]["Valor"].sum()
+        
+        # Velo
+        velo_df = df_live[(df_live["Origem"] == "VELO") & (df_live["Status"] == "pendente")]
+        velo_pend = velo_df["Valor"].sum()
+        velo_count = len(velo_df)
+    
+    # Clickable squares for modules navigation
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.info(f"🏍️ **Gestão de Frota**\n\nTotal: {total_motos} | Locadas: {motos_alugadas} | Livres: {motos_disp}")
+        st.button("Acessar Frota", use_container_width=True, on_click=change_tab_state, args=("Frota",))
+    with c2:
+        st.info(f"👤 **Locatários**\n\nClientes Ativos: {locat_ativos}\n\nㅤ")
+        st.button("Acessar Pilotos", use_container_width=True, on_click=change_tab_state, args=("Locatários",))
+    with c3:
+        st.info(f"📈 **Receitas**\n\nA Receber no Mês:\nR$ {format_currency(rec_mes_pend)}")
+        st.button("Acessar Receitas", use_container_width=True, on_click=change_tab_state, args=("Receitas",))
+    with c4:
+        st.info(f"📉 **Despesas**\n\nVence Hoje: R$ {format_currency(desp_hoje)}\nA Pagar no Mês: R$ {format_currency(desp_mes)}")
+        st.button("Acessar Despesas", use_container_width=True, on_click=change_tab_state, args=("Despesas",))
+
+    st.write("")
+    bc1, bc2 = st.columns(2)
+    with bc1:
+        st.success(f"🏦 **Banco Inter**\n\nSaldo Online: R$ {format_currency(saldo_inter)}")
+        st.button("Ver Extrato Oficial", on_click=change_tab_state, args=("Posição Inter",))
+    with bc2:
+        st.warning(f"💳 **Velo**\n\nCobranças Pendentes: {velo_count} (R$ {format_currency(velo_pend)})")
+        st.button("Acessar Velo", on_click=change_tab_state, args=("Posição Velo",), key="btn_dash_velo")
+
+    st.write("")
+    dbc1, dbc2 = st.columns(2)
+    with dbc1:
+        st.info(f"🏦 **Asaas**\n\nSaldo: R$ {format_currency(saldo_asaas)}\n{asaas_pagos} Pagos | {asaas_vencidos} Vencidos")
+        st.button("Acessar Asaas", on_click=change_tab_state, args=("Posição Asaas",), key="btn_dash_asaas")
+    with dbc2:
+        st.info(f"👥 **Clientes Asaas**\n\nTotal na Carteira: {asaas_count_cust}\n\nㅤ")
+        st.button("Ver Clientes Asaas", on_click=change_tab_state, args=("Locatários",), key="btn_dash_cust_asaas")
+
+    st.markdown("---")
+    
+    all_txs = db.get_transactions()
+    
+    if not all_txs:
+        st.info("Nenhuma transação financeira registrada para gráficos adicionais.")
+        return
+        
+    df = pd.DataFrame(all_txs, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
+    df["Data"] = pd.to_datetime(df["Data"])
+    
+    # Calculate metrics
+    receitas = df[df["Tipo"].isin(["entrada", "entrada_liquida"])]["Valor"].sum()
+    despesas = df[df["Tipo"] == "saida"]["Valor"].sum()
+    lucro = receitas - despesas
+    
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Receitas Totais", f"R$ {format_currency(receitas)}")
+    r2.metric("Despesas Totais", f"R$ {format_currency(despesas)}")
+    r3.metric("Lucro Líquido", f"R$ {format_currency(lucro)}")
+    
+    st.markdown("---")
+    st.subheader("Fluxo de Caixa Mensal")
+    
+    # Create a monthly summary for the chart
+    df['Mes'] = df['Data'].dt.to_period('M').astype(str)
+    resumo_mes = df.groupby(['Mes', 'Tipo'])['Valor'].sum().unstack(fill_value=0).reset_index()
+    if 'entrada' not in resumo_mes.columns: resumo_mes['entrada'] = 0
+    if 'entrada_liquida' not in resumo_mes.columns: resumo_mes['entrada_liquida'] = 0
+    if 'saida' not in resumo_mes.columns: resumo_mes['saida'] = 0
+    resumo_mes['Receitas'] = resumo_mes['entrada'] + resumo_mes['entrada_liquida']
+    resumo_mes['Despesas'] = resumo_mes['saida']
+    
+    chart_data = pd.DataFrame({
+        'Mês': resumo_mes['Mes'],
+        'Receitas': resumo_mes['Receitas'],
+        'Despesas': resumo_mes['Despesas']
+    }).set_index('Mês')
+    st.bar_chart(chart_data)
+
+def pos_inter_tab():
+    st.header("Posição Banco Inter")
+    st.write("Saldo e últimos lançamentos vindos da API do Banco Inter.")
+    
+    try:
+        from inter_client import InterClient
+        client = InterClient()
+        
+        # Try to get balance
+        with st.spinner("Puxando dados do Banco Inter..."):
+            saldo_info = client.get_balance()
+            
+            saldo_atual = saldo_info.get("disponivel", 0.0)
+            st.metric("Saldo Disponível (Inter)", format_currency(saldo_atual))
+            
+            st.markdown("---")
+            st.subheader("Extrato por Período")
+            
+            hoje = datetime.date.today()
+            opcoes_periodo = [
+                "Mês Atual",
+                "Últimos 7 dias",
+                "Últimos 30 dias",
+                "Últimos 90 dias (Trimestre)",
+                "Ano Corrente",
+                "Últimos 365 dias (Ano)",
+                "Desde 01/01/2025",
+                "Busca Personalizada"
+            ]
+            
+            with st.form("inter_form"):
+                c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+                with c1:
+                    periodo_selecionado = st.selectbox("Período Rápido", opcoes_periodo)
+                with c2:
+                    custom_start = st.date_input("Início (Personalizada)", value=hoje.replace(day=1), format="DD/MM/YYYY")
+                with c3:
+                    custom_end = st.date_input("Fim (Personalizada)", value=hoje, format="DD/MM/YYYY")
+                with c4:
+                    st.write("")
+                    st.write("")
+                    submit_inter = st.form_submit_button("Ir", use_container_width=True)
+            
+            if periodo_selecionado == "Últimos 7 dias":
+                start_date_inter = hoje - datetime.timedelta(days=7)
+                end_date_inter = hoje
+            elif periodo_selecionado == "Últimos 30 dias":
+                start_date_inter = hoje - datetime.timedelta(days=30)
+                end_date_inter = hoje
+            elif periodo_selecionado == "Últimos 90 dias (Trimestre)":
+                start_date_inter = hoje - datetime.timedelta(days=90)
+                end_date_inter = hoje
+            elif periodo_selecionado == "Ano Corrente":
+                start_date_inter = hoje.replace(month=1, day=1)
+                end_date_inter = hoje
+            elif periodo_selecionado == "Últimos 365 dias (Ano)":
+                start_date_inter = hoje - datetime.timedelta(days=365)
+                end_date_inter = hoje
+            elif periodo_selecionado == "Desde 01/01/2025":
+                start_date_inter = datetime.date(2025, 1, 1)
+                end_date_inter = hoje
+            elif periodo_selecionado == "Busca Personalizada":
+                start_date_inter = custom_start
+                end_date_inter = custom_end
+            else:
+                start_date_inter = hoje.replace(day=1) # Mês Atual
+                end_date_inter = hoje
+            
+            if start_date_inter > end_date_inter:
+                st.error("A Data Inicial não pode ser maior que a Data Final.")
+                extrato = {}
+            else:
+                extrato = client.get_bank_statement(
+                    data_inicio=start_date_inter.strftime("%Y-%m-%d"),
+                    data_fim=end_date_inter.strftime("%Y-%m-%d")
+                )
+            
+            transacoes_inter = extrato.get("transacoes", [])
+            if transacoes_inter:
+                df_inter = pd.DataFrame(transacoes_inter)
+                if "dataInclusao" in df_inter.columns:
+                    df_inter["dataInclusao"] = pd.to_datetime(df_inter["dataInclusao"]).dt.strftime("%d/%m/%Y")
+                # Select important columns if available
+                cols_to_show = [c for c in ["dataInclusao", "tipoTransacao", "valor", "descricao"] if c in df_inter.columns]
+                if cols_to_show:
+                    if "valor" in cols_to_show:
+                        st.dataframe(
+                            df_inter[cols_to_show],
+                            use_container_width=True,
+                            column_config={
+                                "valor": st.column_config.NumberColumn(
+                                    "Valor",
+                                    format="R$ %.2f"
+                                )
+                            }
+                        )
+                    else:
+                        st.dataframe(
+                            df_inter[cols_to_show],
+                            use_container_width=True
+                        )
+                else:
+                    st.dataframe(
+                        df_inter,
+                        use_container_width=True,
+                        column_config={
+                            "valor": st.column_config.NumberColumn(
+                                "Valor",
+                                format="R$ %.2f"
+                            )
+                        } if "valor" in df_inter.columns else None
+                    )
+            else:
+                st.info("Nenhuma transação encontrada no período.")
+                
+    except Exception as e:
+        if hasattr(e, "response") and e.response is not None:
+            try:
+                error_body = e.response.json()
+                error_message = error_body.get('message', str(error_body))
+                st.error(f"Erro do Banco Inter: {error_message}")
+            except Exception:
+                st.error(f"Erro ao conectar com a API do Banco Inter: {e}")
+        else:
+            st.error(f"Erro ao processar os dados do Inter: {e}")
+        st.warning("Verifique se as credenciais, os certificados (.crt, .key) e as datas estão configurados corretamente.")
+
+def pos_velo_tab():
+    st.header("Posição Velo (Dados do Banco)")
+    st.write("Dados de receitas, despesas e frota relacionados ao contrato Velo.")
+    
+    db = DatabaseManager()
+    
+    try:
+        motos = db.get_all_motos()
+        locacoes = db.get_active_rentals()
+        transacoes = db.get_transactions()
+        
+        # Filter transactions originating from Velo
+        all_velo = [t for t in transacoes if t[1] == 'VELO']
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader(f"Motos Locadas ({len(locacoes)})")
+            if locacoes:
+                df_locadas = pd.DataFrame(locacoes, columns=["Placa", "CPF Cliente", "Início Locação"])
+                df_locadas["Início Locação"] = pd.to_datetime(df_locadas["Início Locação"])
+                st.dataframe(
+                    df_locadas, 
+                    hide_index=True, 
+                    use_container_width=True,
+                    column_config={
+                        "Início Locação": st.column_config.DateColumn(
+                            "Início Locação",
+                            format="DD/MM/YYYY"
+                        )
+                    }
+                )
+            else:
+                st.info("Nenhuma moto locada no momento.")
+                
+        with col2:
+            motos_locadas_plata = [l[0] for l in locacoes]
+            motos_disp = [m for m in motos if m not in motos_locadas_plata]
+            st.subheader(f"Motos Disponíveis ({len(motos_disp)})")
+            if motos_disp:
+                df_disp = pd.DataFrame(motos_disp, columns=["Placa"])
+                df_disp["Status"] = "Pronta / Aguardando Cliente"
+                st.dataframe(df_disp, hide_index=True, use_container_width=True)
+            else:
+                st.info("Todas as motos estão locadas.")
+                
+        st.markdown("---")
+        st.subheader(f"Lançamentos (Velo)")
+        if all_velo:
+            df_lancamentos = pd.DataFrame(all_velo, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa"])
+            if not df_lancamentos.empty:
+                df_lancamentos["Data"] = pd.to_datetime(df_lancamentos["Data"])
+            hoje = datetime.date.today()
+            
+            opcoes_periodo = [
+                "Mês Atual",
+                "Últimos 7 dias",
+                "Últimos 30 dias",
+                "Últimos 90 dias (Trimestre)",
+                "Ano Corrente",
+                "Últimos 365 dias (Ano)",
+                "Desde 01/01/2025",
+                "Busca Personalizada"
+            ]
+            
+            with st.form("velo_form"):
+                c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+                with c1:
+                    periodo_selecionado = st.selectbox("Período Rápido", opcoes_periodo)
+                with c2:
+                    custom_start = st.date_input("Início (Personalizada)", value=hoje.replace(day=1), format="DD/MM/YYYY")
+                with c3:
+                    custom_end = st.date_input("Fim (Personalizada)", value=hoje, format="DD/MM/YYYY")
+                with c4:
+                    st.write("")
+                    st.write("")
+                    submit_velo = st.form_submit_button("Ir", use_container_width=True)
+                
+            if periodo_selecionado == "Últimos 7 dias":
+                start_date_velo = hoje - datetime.timedelta(days=7)
+                end_date_velo = hoje
+            elif periodo_selecionado == "Últimos 30 dias":
+                start_date_velo = hoje - datetime.timedelta(days=30)
+                end_date_velo = hoje
+            elif periodo_selecionado == "Últimos 90 dias (Trimestre)":
+                start_date_velo = hoje - datetime.timedelta(days=90)
+                end_date_velo = hoje
+            elif periodo_selecionado == "Ano Corrente":
+                start_date_velo = hoje.replace(month=1, day=1)
+                end_date_velo = hoje
+            elif periodo_selecionado == "Últimos 365 dias (Ano)":
+                start_date_velo = hoje - datetime.timedelta(days=365)
+                end_date_velo = hoje
+            elif periodo_selecionado == "Desde 01/01/2025":
+                start_date_velo = datetime.date(2025, 1, 1)
+                end_date_velo = hoje
+            elif periodo_selecionado == "Busca Personalizada":
+                start_date_velo = custom_start
+                end_date_velo = custom_end
+            else:
+                start_date_velo = hoje.replace(day=1) # Mês Atual
+                end_date_velo = hoje
+                
+                
+            mask_velo = (df_lancamentos["Data"].dt.date >= start_date_velo) & (df_lancamentos["Data"].dt.date <= end_date_velo)
+            filtered_velo = df_lancamentos.loc[mask_velo].copy()
+            
+            filtered_velo = filtered_velo.drop(columns=["Origem"])
+            filtered_velo = filtered_velo.sort_values(by="Data", ascending=False)
+            
+            st.metric(f"Total de Lançamentos no Período", len(filtered_velo))
+            st.dataframe(
+                filtered_velo, 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    "Valor": st.column_config.NumberColumn(
+                        "Valor",
+                        format="%.2f",
+                        help="Valor do Lançamento",
+                        width="small"
+                    ),
+                    "Data": st.column_config.DateColumn(
+                        "Data",
+                        format="DD/MM/YYYY"
+                    )
+                }
+            )
+        else:
+            st.info("Nenhum lançamento Velo encontrado no banco de dados.")
+    except Exception as e:
+        st.error(f"Erro ao obter dados da Velo: {e}")
+        return
+
+def pos_asaas_tab():
+    st.header("Posição ASAAS (Ao Vivo)")
+    st.write("Consulta em tempo real na API de Produção do banco Asaas.")
+    st.markdown("---")
+    
+    try:
+        from asaas_client import AsaasClient
+        client = AsaasClient()
+        
+        # Top Metrics
+        saldo = client.get_balance()
+        customers = client.get_customers()
+        
+        c_top1, c_top2 = st.columns(2)
+        c_top1.metric("Saldo Disponível (Asaas)", format_currency(saldo))
+        c_top2.metric("Total de Clientes (Asaas)", len(customers))
+        st.markdown("---")
+        
+        # Boletos / Payments List
+        st.subheader("Boletos e Cobranças Geradas")
+        st.info("Buscando as cobranças dos últimos 30 dias na API oficial...")
+        
+        hoje = datetime.date.today()
+        start_date = (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+        end_date = hoje.strftime("%Y-%m-%d")
+        
+        # We need a new method fetch all payments, not just RECEIVED ones for complete view
+        pagamentos = client.get_all_payments(start_date, end_date)
+        
+        if pagamentos:
+            df_pgs = pd.DataFrame(pagamentos)
+            
+            # Translate keys for UI
+            # Keep only: id, value, netValue, dueDate, status, customer
+            df_ui = pd.DataFrame({
+                "Nº Cobrança": df_pgs.get("id", ""),
+                "Vencimento": pd.to_datetime(df_pgs.get("dueDate", "")).dt.strftime("%d/%m/%Y"),
+                "Valor Bruto": df_pgs.get("value", 0.0).apply(format_currency),
+                "Valor Líquido": df_pgs.get("netValue", 0.0).apply(format_currency),
+                "Status": df_pgs.get("status", "")
+            })
+            
+            # Map statuses
+            status_map = {
+                "PENDING": "🟡 Pendente",
+                "RECEIVED": "🟢 Recebido",
+                "CONFIRMED": "🟢 Confirmado",
+                "OVERDUE": "🔴 Vencido",
+                "REFUNDED": "🔄 Estornado",
+                "RECEIVED_IN_CASH": "💵 Recebido Físico"
+            }
+            df_ui["Status"] = df_ui["Status"].map(lambda s: status_map.get(s, s))
+            
+            # Stats metrics
+            p_pagos = len(df_pgs[df_pgs["status"].isin(["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"])])
+            p_vencidos = len(df_pgs[df_pgs["status"] == "OVERDUE"])
+            p_pendentes = len(df_pgs[df_pgs["status"] == "PENDING"])
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Cobranças Pagas", p_pagos)
+            c2.metric("Cobranças Pendentes", p_pendentes)
+            c3.metric("Boletos Vencidos", p_vencidos)
+            
+            st.dataframe(df_ui, use_container_width=True, hide_index=True)
+            
+        else:
+            st.warning("Nenhuma cobrança encontrada nos últimos 30 dias.")
+
+    except Exception as e:
+        st.error(f"Erro ao conectar com API do Asaas: {e}")
+
+def receitas_tab():
+    st.header("Receitas")
+    st.write("Transações de entrada da Frota.")
+    
+    db = DatabaseManager()
+    all_txs = db.get_transactions()
+    
+    # Filter for receitas ('entrada', 'entrada_liquida')
+    # Tx format: id, origem, tipo, valor, data, cpf_cliente, placa_moto
+    all_receitas = [tx for tx in all_txs if tx[2] in ('entrada', 'entrada_liquida')]
+    
+    if not all_receitas:
+        st.info("Nenhuma receita registrada ainda.")
+        return
+
+    st.subheader("Registrar Receita Manualmente")
+    
+    try:
+        motos = db.get_all_motos()
+    except Exception:
+        motos = []
+        
+    with st.form("manual_entry_receitas_form"):
+        col_placa, col_data = st.columns(2)
+        with col_placa:
+            sel_placa = st.selectbox("Moto (Placa) [Opcional]", [""] + motos)
+        with col_data:
+            sel_data = st.date_input("Data da Receita", format="DD/MM/YYYY")
+            
+        col_origem, col_valor, col_status = st.columns(3)
+        with col_origem:
+            sel_origem = st.selectbox("Origem", ["MANUAL", "PIX", "DINHEIRO", "ASAAS"])
+        with col_valor:
+            sel_valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
+        with col_status:
+            sel_status = st.selectbox("Status", ["pago", "pendente"], key="status_receita")
+            
+        submit_btn = st.form_submit_button("Registrar Receita")
+        
+        if submit_btn:
+            db.add_transaction(
+                origem=sel_origem,
+                tipo="entrada",
+                valor=sel_valor,
+                data=sel_data.strftime("%Y-%m-%d"),
+                status=sel_status,
+                placa_moto=sel_placa if sel_placa else None
+            )
+            st.success(f"Receita de R${sel_valor:.2f} registrada com sucesso!")
+            st.rerun()
+
+    st.markdown("---")
+    
+    if all_receitas:
+        df = pd.DataFrame(all_receitas, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
+        if not df.empty:
+            df["Data"] = pd.to_datetime(df["Data"])
+    hoje = datetime.date.today()
+    
+    opcoes_periodo = [
+        "Mês Atual",
+        "Últimos 7 dias",
+        "Últimos 30 dias",
+        "Últimos 90 dias (Trimestre)",
+        "Ano Corrente",
+        "Últimos 365 dias (Ano)",
+        "Desde 01/01/2025",
+        "Busca Personalizada"
+    ]
+    
+    with st.form("receitas_form"):
+        c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+        with c1:
+            periodo_selecionado = st.selectbox("Período Rápido", opcoes_periodo)
+        with c2:
+            custom_start = st.date_input("Início (Personalizada)", value=hoje.replace(day=1), format="DD/MM/YYYY")
+        with c3:
+            custom_end = st.date_input("Fim (Personalizada)", value=hoje, format="DD/MM/YYYY")
+        with c4:
+            st.write("")
+            st.write("")
+            submit_receitas = st.form_submit_button("Ir", use_container_width=True)
+        
+    if periodo_selecionado == "Últimos 7 dias":
+        start_date = hoje - datetime.timedelta(days=7)
+        end_date = hoje
+    elif periodo_selecionado == "Últimos 30 dias":
+        start_date = hoje - datetime.timedelta(days=30)
+        end_date = hoje
+    elif periodo_selecionado == "Últimos 90 dias (Trimestre)":
+        start_date = hoje - datetime.timedelta(days=90)
+        end_date = hoje
+    elif periodo_selecionado == "Ano Corrente":
+        start_date = hoje.replace(month=1, day=1)
+        end_date = hoje
+    elif periodo_selecionado == "Últimos 365 dias (Ano)":
+        start_date = hoje - datetime.timedelta(days=365)
+        end_date = hoje
+    elif periodo_selecionado == "Desde 01/01/2025":
+        start_date = datetime.date(2025, 1, 1)
+        end_date = hoje
+    elif periodo_selecionado == "Busca Personalizada":
+        start_date = custom_start
+        end_date = custom_end
+    else:
+        start_date = hoje.replace(day=1) # Mês Atual
+        end_date = hoje
+        
+    mask = (df["Data"].dt.date >= start_date) & (df["Data"].dt.date <= end_date)
+    filtered_df = df.loc[mask].copy()
+    
+    st.metric("Total de Receitas no Período", format_currency(filtered_df['Valor'].sum(), include_symbol=True))
+    
+    # filtered_df["Valor"] = filtered_df["Valor"].apply(format_currency) # No longer needed with column_config
+    st.dataframe(
+        filtered_df, 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "Valor": st.column_config.NumberColumn(
+                "Valor",
+                format="%.2f"
+            ),
+            "Data": st.column_config.DateColumn(
+                "Data",
+                format="DD/MM/YYYY"
+            )
+        }
+    )
+
+def despesas_tab():
+    st.header("Despesas")
+    st.write("Transações de saída da Frota.")
+    
+    db = DatabaseManager()
+    
+    st.subheader("Registrar Despesa Manualmente")
+    
+    try:
+        motos = db.get_all_motos()
+    except Exception:
+        motos = []
+        
+    if not motos:
+        st.warning("Nenhuma moto cadastrada no banco de dados. Cadastre motos primeiro acessando o banco.")
+    else:
+        with st.form("manual_entry_form"):
+            col_placa, col_data = st.columns(2)
+            with col_placa:
+                sel_placa = st.selectbox("Moto (Placa)", motos)
+            with col_data:
+                sel_data = st.date_input("Data da Despesa", format="DD/MM/YYYY")
+                
+            col_origem, col_valor, col_status = st.columns(3)
+            with col_origem:
+                sel_origem = st.selectbox("Origem", ["VELO", "OUTROS"])
+            with col_valor:
+                sel_valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
+            with col_status:
+                sel_status = st.selectbox("Status", ["pago", "pendente"], key="status_despesa")
+                
+            submit_btn = st.form_submit_button("Registrar Despesa")
+            
+            if submit_btn:
+                db.add_transaction(
+                    origem=sel_origem,
+                    tipo="saida",
+                    valor=sel_valor,
+                    data=sel_data.strftime("%Y-%m-%d"),
+                    status=sel_status,
+                    placa_moto=sel_placa
+                )
+                st.success(f"Despesa de R${sel_valor:.2f} registrada para a moto {sel_placa} com sucesso!")
+                st.rerun()
+                
+    st.markdown("---")
+    st.subheader("Histórico de Despesas")
+
+    all_txs = db.get_transactions()
+    all_despesas = [tx for tx in all_txs if tx[2] == 'saida']
+    
+    if not all_despesas:
+        st.info("Nenhuma despesa registrada ainda.")
+        return
+
+    if all_despesas:
+        df = pd.DataFrame(all_despesas, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
+        if not df.empty:
+            df["Data"] = pd.to_datetime(df["Data"])
+    hoje = datetime.date.today()
+    
+    opcoes_periodo = [
+        "Mês Atual",
+        "Últimos 7 dias",
+        "Últimos 30 dias",
+        "Últimos 90 dias (Trimestre)",
+        "Ano Corrente",
+        "Últimos 365 dias (Ano)",
+        "Desde 01/01/2025",
+        "Busca Personalizada"
+    ]
+    
+    with st.form("despesas_form"):
+        c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+        with c1:
+            periodo_selecionado = st.selectbox("Período Rápido", opcoes_periodo)
+        with c2:
+            custom_start = st.date_input("Início (Personalizada)", value=hoje.replace(day=1), format="DD/MM/YYYY")
+        with c3:
+            custom_end = st.date_input("Fim (Personalizada)", value=hoje, format="DD/MM/YYYY")
+        with c4:
+            st.write("")
+            st.write("")
+            submit_despesas = st.form_submit_button("Ir", use_container_width=True)
+        
+    if periodo_selecionado == "Últimos 7 dias":
+        start_date = hoje - datetime.timedelta(days=7)
+        end_date = hoje
+    elif periodo_selecionado == "Últimos 30 dias":
+        start_date = hoje - datetime.timedelta(days=30)
+        end_date = hoje
+    elif periodo_selecionado == "Últimos 90 dias (Trimestre)":
+        start_date = hoje - datetime.timedelta(days=90)
+        end_date = hoje
+    elif periodo_selecionado == "Ano Corrente":
+        start_date = hoje.replace(month=1, day=1)
+        end_date = hoje
+    elif periodo_selecionado == "Últimos 365 dias (Ano)":
+        start_date = hoje - datetime.timedelta(days=365)
+        end_date = hoje
+    elif periodo_selecionado == "Desde 01/01/2025":
+        start_date = datetime.date(2025, 1, 1)
+        end_date = hoje
+    elif periodo_selecionado == "Busca Personalizada":
+        start_date = custom_start
+        end_date = custom_end
+    else:
+        start_date = hoje.replace(day=1) # Mês Atual
+        end_date = hoje
+        
+    mask = (df["Data"].dt.date >= start_date) & (df["Data"].dt.date <= end_date)
+    filtered_df = df.loc[mask].copy()
+    
+    st.metric("Total de Despesas no Período", format_currency(filtered_df['Valor'].sum()))
+    
+    filtered_df["Valor"] = filtered_df["Valor"].apply(format_currency)
+    st.dataframe(
+        filtered_df.style.set_properties(subset=['Valor'], **{'text-align': 'right', 'padding-right': '15px'}), 
+        use_container_width=True, 
+        hide_index=True
+    )
+
+def config_ui_tab():
+    st.header("Configurações")
+    
+    tab_sistema, tab_usuarios = st.tabs(["Sistema (APIs e E-mail)", "Gestão de Usuários"])
+    
+    with tab_sistema:
+        st.write("Estas chaves ficam salvas apenas localmente na sua máquina em um arquivo `.env`.")
+        env_vars = load_env_vars()
+
+        # SMTP Config
+        st.subheader("Configurações de E-mail (SMTP)")
+        has_smtp = "✅ Configurado" if "SMTP_SERVER" in env_vars else "❌ Pendente"
+        st.write(f"Status Atual: **{has_smtp}**")
+        
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            smtp_server = st.text_input("Servidor SMTP", value=env_vars.get("SMTP_SERVER", "smtp.gmail.com"))
+            smtp_port = st.text_input("Porta SMTP", value=env_vars.get("SMTP_PORT", "587"))
+        with col_s2:
+            smtp_user = st.text_input("Usuário SMTP (E-mail)", value=env_vars.get("SMTP_USER", ""))
+            smtp_pass = st.text_input("Senha SMTP", type="password", value=env_vars.get("SMTP_PASSWORD", ""))
+            
+        if st.button("Salvar Servidor de E-mail"):
+            if smtp_server and smtp_port and smtp_user and smtp_pass:
+                save_env_var("SMTP_SERVER", smtp_server)
+                save_env_var("SMTP_PORT", smtp_port)
+                save_env_var("SMTP_USER", smtp_user)
+                save_env_var("SMTP_PASSWORD", smtp_pass)
+                st.success("Configurações SMTP salvas com sucesso em `.env`!")
+                st.rerun()
+            else:
+                st.error("Preencha todos os campos do SMTP.")
+
+        # Contador Config
+        st.markdown("---")
+        st.subheader("Contador")
+        contador_email = st.text_input("Email do Contador", value=env_vars.get("EMAIL_CONTADOR", ""))
+        if st.button("Salvar Email do Contador"):
+            if contador_email:
+                save_env_var("EMAIL_CONTADOR", contador_email)
+                st.success("Email salvo com sucesso em `.env`!")
+
+        # ASAAS config
+        st.markdown("---")
+        st.subheader("ASAAS")
+        has_asaas = "✅ Configurado" if "ASAAS_API_KEY" in env_vars else "❌ Pendente"
+        st.write(f"Status Atual: **{has_asaas}**")
+        asaas_key = st.text_input("Chave de API ASAAS", type="password", value=env_vars.get("ASAAS_API_KEY", ""))
+        if st.button("Salvar ASAAS", key="btn_asaas"):
+            if asaas_key:
+                save_env_var("ASAAS_API_KEY", asaas_key)
+                st.success("Chave ASAAS salva com sucesso!")
+                st.rerun()
+
+        # Velo config
+        st.markdown("---")
+        st.subheader("Velo")
+        has_velo = "✅ Configurado" if "VELO_API_KEY" in env_vars else "❌ Pendente"
+        st.write(f"Status Atual: **{has_velo}**")
+        velo_key = st.text_input("Chave de API Velo", type="password", value=env_vars.get("VELO_API_KEY", ""))
+        if st.button("Salvar Velo", key="btn_velo"):
+            if velo_key:
+                save_env_var("VELO_API_KEY", velo_key)
+                st.success("Chave Velo salva com sucesso!")
+                st.rerun()
+
+
+        # Banco Inter API Config
+        st.markdown("---")
+        st.subheader("Banco Inter (API & Certificado)")
+        has_inter_api = "✅ Configurado" if "INTER_CLIENT_ID" in env_vars else "❌ Pendente"
+        has_inter_cert = "✅ Configurado" if "INTER_CERT" in env_vars else "❌ Pendente"
+        st.write(f"Status API: **{has_inter_api}** | Status Certificado: **{has_inter_cert}**")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            inter_client_id = st.text_input("Client ID", value=env_vars.get("INTER_CLIENT_ID", ""))
+        with col2:
+            inter_client_secret = st.text_input("Client Secret", type="password", value=env_vars.get("INTER_CLIENT_SECRET", ""))
+            
+        if st.button("Salvar Credenciais da API (Inter)"):
+            if inter_client_id and inter_client_secret:
+                save_env_var("INTER_CLIENT_ID", inter_client_id)
+                save_env_var("INTER_CLIENT_SECRET", inter_client_secret)
+                st.success("Credenciais do Banco Inter salvas com sucesso!")
+                st.rerun()
+
+        # Reordered section: Certificates right below API
+        st.write("### Certificados (mTLS)")
+        os.makedirs(CERTS_DIR, exist_ok=True)
+        uploaded_crt = st.file_uploader("Upload Novo Certificado (.crt)", type=["crt"], key="up_crt")
+        uploaded_key = st.file_uploader("Upload Nova Chave Privada (.key)", type=["key"], key="up_key")
+
+        if st.button("Salvar Arquivos de Certificado", key="btn_inter_certs"):
+            if uploaded_crt and uploaded_key:
+                crt_path = os.path.join(CERTS_DIR, uploaded_crt.name)
+                key_path = os.path.join(CERTS_DIR, uploaded_key.name)
+                
+                with open(crt_path, "wb") as f_crt:
+                    f_crt.write(uploaded_crt.getbuffer())
+                with open(key_path, "wb") as f_key:
+                    f_key.write(uploaded_key.getbuffer())
+                
+                save_env_var("INTER_CERT", crt_path)
+                save_env_var("INTER_KEY", key_path)
+                st.success(f"Certificados salvos com sucesso!")
+                st.rerun()
+            else:
+                st.error("Envie ambos os arquivos (.crt e .key)")
+
+        # Inter Pix Key Config
+        st.markdown("---")
+        st.subheader("Chave Pix de Destino (Para Varredura Asaas)")
+        has_pix = "✅ Configurado" if "INTER_PIX_KEY" in env_vars else "❌ Pendente"
+        st.write(f"Status da Chave: **{has_pix}**")
+        
+        col_pk1, col_pk2 = st.columns(2)
+        with col_pk1:
+            pix_key = st.text_input("Sua Chave Pix (Banco Inter)", value=env_vars.get("INTER_PIX_KEY", ""))
+        with col_pk2:
+            pix_type = st.selectbox("Tipo da Chave", ["CPF", "CNPJ", "EMAIL", "PHONE", "EVP"], 
+                                   index=["CPF", "CNPJ", "EMAIL", "PHONE", "EVP"].index(env_vars.get("INTER_PIX_KEY_TYPE", "CNPJ")) if "INTER_PIX_KEY_TYPE" in env_vars else 1)
+                                   
+        if st.button("Salvar Chave Pix de Recebimento"):
+            if pix_key and pix_type:
+                save_env_var("INTER_PIX_KEY", pix_key)
+                save_env_var("INTER_PIX_KEY_TYPE", pix_type)
+                st.success("Chave Pix salva com sucesso!")
+                st.rerun()
+
+    with tab_usuarios:
+        st.write("Crie novos acessos, defina quais abas cada usuário pode ver e altere senhas.")
+        
+        db = DatabaseManager()
+        
+        with st.expander("✨ Criar Novo Usuário"):
+            with st.form("admin_create_user_form"):
+                new_nome = st.text_input("Nome Completo")
+                new_user = st.text_input("Usuário (Login)")
+                new_email = st.text_input("E-mail (Opcional)")
+                new_pass = st.text_input("Senha", type="password")
+                
+                todas_abas = [
+                    "Dashboard",
+                    "Posição Inter",
+                    "Posição Velo",
+                    "Receitas",
+                    "Despesas",
+                    "Configurações",
+                    "Dados para Contador"
+                ]
+                
+                new_perms = st.multiselect("Abas Permitidas", todas_abas, default=["Dashboard", "Receitas", "Despesas"])
+                new_papel = st.selectbox("Papel Geral (Legado)", ["user", "viewer", "admin"])
+                
+                submitted_new = st.form_submit_button("Criar Usuário")
+                if submitted_new:
+                    if new_nome and new_user and new_pass:
+                        is_valid, msg = is_strong_password(new_pass)
+                        if not is_valid:
+                            st.error(msg)
+                        else:
+                            perms_str = ",".join(new_perms)
+                            hashed = hash_password(new_pass)
+                            sucesso = db.create_user(new_nome, new_user, new_email, hashed, new_papel, "aprovado", permissoes=perms_str)
+                            if sucesso:
+                                st.success(f"Usuário {new_user} criado com sucesso!")
+                                st.rerun()
+                            else:
+                                st.error("Nome de usuário já existe.")
+                    else:
+                        st.error("Nome, Usuário e Senha são obrigatórios.")
+                        
+        st.markdown("---")
+        st.subheader("Usuários Existentes")
+        
+        users = db.get_all_users()
+        if users:
+            for user in users:
+                uid, nome, username_db, email_db, papel, status, permissoes_db, created_at = user
+                
+                # Default permissions if null or empty
+                if not permissoes_db:
+                    if papel == 'admin':
+                        current_perms = ["Dashboard", "Frota", "Locatários", "Posição Inter", "Posição Asaas", "Posição Velo", "Receitas", "Despesas", "Configurações", "Dados para Contador"]
+                    else:
+                        current_perms = ["Receitas", "Despesas", "Dashboard"]
+                else:
+                    current_perms = [p.strip() for p in permissoes_db.split(",") if p.strip()]
+                    
+                with st.expander(f"👤 {nome} ({username_db}) - Status: {status.upper()}"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_nome = st.text_input("Nome Completo", value=nome, key=f"n_{uid}")
+                        opts_status = ["aprovado", "pendente", "bloqueado"]
+                        new_status = st.selectbox("Status", opts_status, index=opts_status.index(status), key=f"s_{uid}")
+                        new_papel = st.selectbox("Papel (Legado)", ["admin", "user", "viewer"], index=["admin", "user", "viewer"].index(papel), key=f"r_{uid}")
+                        
+                        st.write("Recalcular Senha")
+                        new_password = st.text_input("Nova Senha (deixe em branco para manter)", type="password", key=f"p_{uid}")
+                        
+                    with col2:
+                        todas_abas = [
+                            "Dashboard",
+                            "Frota",
+                            "Locatários",
+                            "Posição Inter",
+                            "Posição Asaas",
+                            "Posição Velo",
+                            "Receitas",
+                            "Despesas",
+                            "Configurações",
+                            "Dados para Contador"
+                        ]
+                        
+                        st.write("**Acesso aos Módulos (Selecione Individualmente):**")
+                        # Create a layout for checkboxes (e.g., 2 per row)
+                        new_perms = []
+                        valid_current_perms = [p for p in current_perms if p in todas_abas]
+                        
+                        # Loop through all available tabs to create an individual checkbox for each
+                        for idx, tab_name in enumerate(todas_abas):
+                            is_checked = tab_name in valid_current_perms
+                            # Use a unique key combining user_id and tab index
+                            if st.checkbox(tab_name, value=is_checked, key=f"chk_{uid}_{idx}"):
+                                new_perms.append(tab_name)
+                    
+                    if st.button("Salvar Alterações do Usuário", key=f"save_{uid}"):
+                        perms_str = ",".join(new_perms)
+                        db.update_user_access(uid, new_nome, new_status, new_papel, perms_str)
+                        
+                        if new_password:
+                            is_valid, msg = is_strong_password(new_password)
+                            if not is_valid:
+                                st.error(msg)
+                            else:
+                                db.update_user_password(uid, hash_password(new_password))
+                                st.success("Permissões e senha atualizadas com sucesso!")
+                                st.rerun()
+                        else:
+                            st.success("Permissões atualizadas com sucesso!")
+                            st.rerun()
+        else:
+            st.info("Nenhum usuário encontrado.")
+
+def dados_contador_tab():
+    st.header("Dados para Contador")
+    st.write("Exporte OFX e CSV de todas as transações, e gerencie o envio para o email configurado.")
+    
+    env_vars = load_env_vars()
+    contador_email = env_vars.get("EMAIL_CONTADOR", "")
+    
+    if not contador_email:
+        st.warning("O email do contador não está configurado. Vá na aba 'Configurações de API' para adicionar.")
+    else:
+        st.info(f"Email configurado: **{contador_email}**")
+        
+    db = DatabaseManager()
+    
+    st.markdown("---")
+    st.subheader("Envio Manual / Download")
+    
+    # Let the user pick a month to export
+    hoje = datetime.date.today()
+    mes_atual = hoje.replace(day=1)
+    mes_anterior = (mes_atual - datetime.timedelta(days=1)).replace(day=1)
+    
+    opcoes_meses = [
+        mes_atual.strftime("%m/%Y"),
+        mes_anterior.strftime("%m/%Y")
+    ]
+    
+    mes_selecionado = st.selectbox("Selecione o Mês Base", opcoes_meses)
+    
+    if st.button("Gerar Arquivos e Enviar Agora"):
+        if not contador_email:
+            st.error("Configure o email do contador primeiro.")
+        else:
+            with st.spinner("Conectando ao Banco Inter e gerando relatórios..."):
+                from exports import generate_csv_summary
+                from mailer import send_accountant_email
+                from inter_client import InterClient
+                import calendar
+                
+                # Setup date range
+                month_str, year_str = mes_selecionado.split('/')
+                last_day = calendar.monthrange(int(year_str), int(month_str))[1]
+                data_inicio = f"{year_str}-{month_str}-01"
+                data_fim = f"{year_str}-{month_str}-{last_day:02d}"
+                
+                # 1. Fetch from Banco Inter
+                pdf_b64 = None
+                ofx_b64 = None
+                inter_error = None
+                try:
+                    client = InterClient()
+                    pdf_b64 = client.get_extrato_export(data_inicio, data_fim, "PDF")
+                    ofx_b64 = client.get_extrato_export(data_inicio, data_fim, "OFX")
+                except Exception as e:
+                    inter_error = str(e)
+                    
+                if inter_error:
+                    st.error(f"Erro ao baixar extratos do Banco Inter: {inter_error}")
+                else:
+                    # 3. Send Email
+                    success, msg = send_accountant_email(contador_email, mes_selecionado, ofx_b64=ofx_b64, pdf_b64=pdf_b64)
+                    
+                    if success:
+                        db.record_accountant_export(mes_selecionado, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "sucesso", st.session_state.user_name)
+                        st.success(f"Extratos oficiais enviados com sucesso para {contador_email}! ({msg})")
+                    else:
+                        db.record_accountant_export(mes_selecionado, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "falha", st.session_state.user_name)
+                        st.error(msg)
+                        
+    st.markdown("---")
+    st.subheader("Histórico de Envios Automatizados")
+    
+    historico = db.get_accountant_exports()
+    if historico:
+        # DB schema assumes columns: ID, Mês Referência, Data do Envio, Status, Enviado Por
+        df_hist = pd.DataFrame(historico, columns=["ID", "Mês Referência", "Data do Envio", "Status", "Enviado Por"])
+        df_hist["Data do Envio"] = pd.to_datetime(df_hist["Data do Envio"]).dt.strftime("%d/%m/%Y %H:%M:%S")
+        st.dataframe(df_hist, hide_index=True)
+    else:
+        st.write("Nenhum envio registrado.")
+
+# --- Main App ---
+
+def auto_send_accountant_export():
+    env_vars = load_env_vars()
+    contador_email = env_vars.get("EMAIL_CONTADOR", "")
+    
+    if not contador_email:
+        return
+        
+    hoje = datetime.date.today()
+    if hoje.day >= 5:
+        mes_anterior = (hoje.replace(day=1) - datetime.timedelta(days=1)).strftime("%Y-%m")
+        db = DatabaseManager()
+        
+        if not db.has_sent_export_for_month(mes_anterior):
+            from exports import generate_csv_summary
+            from mailer import send_accountant_email
+            from inter_client import InterClient
+            import calendar
+            
+            year_str, month_str = mes_anterior.split('-')
+            last_day = calendar.monthrange(int(year_str), int(month_str))[1]
+            data_inicio = f"{mes_anterior}-01"
+            data_fim = f"{mes_anterior}-{last_day:02d}"
+            
+            try:
+                client = InterClient()
+                pdf_b64 = client.get_extrato_export(data_inicio, data_fim, "PDF")
+                ofx_b64 = client.get_extrato_export(data_inicio, data_fim, "OFX")
+                
+                success, msg = send_accountant_email(contador_email, mes_anterior, ofx_b64=ofx_b64, pdf_b64=pdf_b64)
+                if success:
+                    db.record_accountant_export(mes_anterior, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "sucesso", "Robô Automático")
+                    st.toast(f"✅ Relatório oficial do mês {mes_anterior} enviado automaticamente para o contador.")
+                else:
+                    db.record_accountant_export(mes_anterior, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "falha", "Robô Automático")
+                    st.toast(f"❌ Falha no envio automático para o contador: {msg}")
+            except Exception as e:
+                st.toast(f"❌ Falha na integração com Banco Inter no envio automático: {str(e)}")
+
+def main():
+    st.set_page_config(page_title="Locamotos", page_icon="🏍️", layout="wide")
+    init_session_state()
+    
+    
+    if not st.session_state.logged_in:
+        login_register_screen()
+    else:
+        # Check auto send
+        if st.session_state.user_role == "admin":
+            auto_send_accountant_export()
+            
+        # Sidebar Navigation
+        st.sidebar.title("Locamotos")
+        st.sidebar.write(f"Olá, **{st.session_state.user_name}**")
+        
+        # Determine accessible tabs
+        perms = st.session_state.user_permissions
+        if st.session_state.user_role == "admin":
+            available_tabs = [
+                "Dashboard",
+                "Frota",
+                "Locatários",
+                "Posição Inter",
+                "Posição Velo",
+                "Receitas",
+                "Despesas",
+                "Configurações",
+                "Dados para Contador"
+            ]
+        else:
+            if not perms:
+                available_tabs = ["Dashboard"]
+            else:
+                available_tabs = [p.strip() for p in perms.split(",") if p.strip()]
+        
+        # DEV OVERRIDE (to ensure Locatários works for admin bypassing login)
+        if st.session_state.user_role == "admin" and "Locatários" not in perms:
+            st.session_state.user_permissions += ",Locatários"
+            available_tabs.insert(2, "Locatários")
+        
+        if "active_tab" not in st.session_state:
+            st.session_state.active_tab = "Dashboard"
+            
+        if st.session_state.active_tab not in available_tabs:
+            st.session_state.active_tab = "Dashboard"
+
+        selection = st.sidebar.radio("Navegação", available_tabs, key="active_tab")
+        
+        if st.sidebar.button("Sair (Log Out)"):
+            do_logout()
+            
+        # Router
+        if selection == "Dashboard":
+            dashboard_tab()
+        elif selection == "Frota":
+            frota_tab()
+        elif selection == "Locatários":
+            locatarios_tab()
+        elif selection == "Posição Inter":
+            pos_inter_tab()
+        elif selection == "Posição Asaas":
+            pos_asaas_tab()
+        elif selection == "Posição Velo":
+            pos_velo_tab()
+        elif selection == "Receitas":
+            receitas_tab()
+        elif selection == "Despesas":
+            despesas_tab()
+        elif selection == "Configurações":
+            config_ui_tab()
+        elif selection == "Dados para Contador":
+            dados_contador_tab()
+
+if __name__ == "__main__":
+    main()

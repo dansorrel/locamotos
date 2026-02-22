@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Database files
+*.db
+*.sqlite3
+fleet.db
+
+# Secrets & Certificates
+certs/
+*.crt
+*.key
+*.pem
+*.pfx
+*.p12
+
+# Streamlit specific
+.streamlit/
+deploy.py
+test_mysql.py
+
+# MacOS
+.DS_Store
+*.app/
+Screenshot*.png
+
+# AI Context
+.gemini/
