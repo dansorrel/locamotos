@@ -247,10 +247,10 @@ def dashboard_tab():
     dbc1, dbc2 = st.columns(2)
     with dbc1:
         st.info(f"🏦 **Asaas**\n\nSaldo: R$ {format_currency(saldo_asaas)}\n{asaas_pagos} Pagos | {asaas_vencidos} Vencidos")
-        st.button("Acessar Asaas", on_click=change_tab_state, args=("Posição Asaas",), key="btn_dash_asaas")
+        st.button("Acessar Asaas", on_click=change_tab_state, args=("ASAAS",), key="btn_dash_asaas")
     with dbc2:
-        st.info(f"👥 **Clientes Asaas**\n\nTotal na Carteira: {asaas_count_cust}\n\nㅤ")
-        st.button("Ver Clientes Asaas", on_click=change_tab_state, args=("Locatários",), key="btn_dash_cust_asaas")
+        st.info(f"👥 **Locatários (Velo)**\n\nTotal na Carteira: {asaas_count_cust}\n\nㅤ")
+        st.button("Ver Locatários", on_click=change_tab_state, args=("Velo",), key="btn_dash_cust_asaas")
 
     st.markdown("---")
     
@@ -292,9 +292,9 @@ def dashboard_tab():
     }).set_index('Mês')
     st.bar_chart(chart_data)
 
-def pos_inter_tab():
-    st.header("Posição Banco Inter")
-    st.write("Saldo e últimos lançamentos vindos da API do Banco Inter.")
+def inter_tab():
+    st.header("🏦 Posição Banco Inter")
+    st.write("Valores recebidos do ASAAS, despesas pagas e extrato para contador.")
     
     try:
         from inter_client import InterClient
@@ -307,8 +307,13 @@ def pos_inter_tab():
             saldo_atual = saldo_info.get("disponivel", 0.0)
             st.metric("Saldo Disponível (Inter)", format_currency(saldo_atual))
             
+            # --- Accountant Export Shortcut ---
             st.markdown("---")
-            st.subheader("Extrato por Período")
+            st.subheader("📁 Dados para Contador")
+            dados_contador_tab()
+            
+            st.markdown("---")
+            st.subheader("📜 Extrato por Período (Recebidos ASAAS / Despesas)")
             
             hoje = datetime.date.today()
             opcoes_periodo = [
@@ -417,144 +422,53 @@ def pos_inter_tab():
                 st.error(f"Erro ao conectar com a API do Banco Inter: {e}")
         else:
             st.error(f"Erro ao processar os dados do Inter: {e}")
-        st.warning("Verifique se as credenciais, os certificados (.crt, .key) e as datas estão configurados corretamente.")
 
-def pos_velo_tab():
-    st.header("Posição Velo (Dados do Banco)")
-    st.write("Dados de receitas, despesas e frota relacionados ao contrato Velo.")
+def velo_tab():
+    st.header("🏍️ Velo")
+    st.write("Locatários, motos, manutenções, trocas de óleo, vistorias, multas, valores cobrados de locatários, valores a receber de locatários.")
     
-    db = DatabaseManager()
+    tab_locatarios, tab_motos, tab_financeiro = st.tabs([
+        "👤 Locatários (Pilotos)", 
+        "🏍️ Frota (Motos)", 
+        "💰 Financeiro Pilotos"
+    ])
     
-    try:
-        motos = db.get_all_motos()
-        locacoes = db.get_active_rentals()
-        transacoes = db.get_transactions()
+    with tab_locatarios:
+        from locatarios_ui import locatarios_tab
+        locatarios_tab()
         
-        # Filter transactions originating from Velo
-        all_velo = [t for t in transacoes if t[1] == 'VELO']
+    with tab_motos:
+        from frota_ui import frota_tab
+        frota_tab()
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader(f"Motos Locadas ({len(locacoes)})")
-            if locacoes:
-                df_locadas = pd.DataFrame(locacoes, columns=["Placa", "CPF Cliente", "Início Locação"])
-                df_locadas["Início Locação"] = pd.to_datetime(df_locadas["Início Locação"])
+    with tab_financeiro:
+        st.subheader("Cobranças e Valores a Receber (Velo)")
+        # This part combines logic from the old pos_velo_tab
+        db = DatabaseManager()
+        try:
+            transacoes = db.get_transactions()
+            # Filter transactions originating from Velo or associated with motos/locatarios manually
+            all_velo = [t for t in transacoes if t[1] == 'VELO']
+            
+            if all_velo:
+                df = pd.DataFrame(all_velo, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa"])
                 st.dataframe(
-                    df_locadas, 
-                    hide_index=True, 
+                    df.sort_values(by="Data", ascending=False),
                     use_container_width=True,
+                    hide_index=True,
                     column_config={
-                        "Início Locação": st.column_config.DateColumn(
-                            "Início Locação",
-                            format="DD/MM/YYYY"
-                        )
+                        "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
+                        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY")
                     }
                 )
             else:
-                st.info("Nenhuma moto locada no momento.")
-                
-        with col2:
-            motos_locadas_plata = [l[0] for l in locacoes]
-            motos_disp = [m for m in motos if m not in motos_locadas_plata]
-            st.subheader(f"Motos Disponíveis ({len(motos_disp)})")
-            if motos_disp:
-                df_disp = pd.DataFrame(motos_disp, columns=["Placa"])
-                df_disp["Status"] = "Pronta / Aguardando Cliente"
-                st.dataframe(df_disp, hide_index=True, use_container_width=True)
-            else:
-                st.info("Todas as motos estão locadas.")
-                
-        st.markdown("---")
-        st.subheader(f"Lançamentos (Velo)")
-        if all_velo:
-            df_lancamentos = pd.DataFrame(all_velo, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa"])
-            if not df_lancamentos.empty:
-                df_lancamentos["Data"] = pd.to_datetime(df_lancamentos["Data"])
-            hoje = datetime.date.today()
-            
-            opcoes_periodo = [
-                "Mês Atual",
-                "Últimos 7 dias",
-                "Últimos 30 dias",
-                "Últimos 90 dias (Trimestre)",
-                "Ano Corrente",
-                "Últimos 365 dias (Ano)",
-                "Desde 01/01/2025",
-                "Busca Personalizada"
-            ]
-            
-            with st.form("velo_form"):
-                c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-                with c1:
-                    periodo_selecionado = st.selectbox("Período Rápido", opcoes_periodo)
-                with c2:
-                    custom_start = st.date_input("Início (Personalizada)", value=hoje.replace(day=1), format="DD/MM/YYYY")
-                with c3:
-                    custom_end = st.date_input("Fim (Personalizada)", value=hoje, format="DD/MM/YYYY")
-                with c4:
-                    st.write("")
-                    st.write("")
-                    submit_velo = st.form_submit_button("Ir", use_container_width=True)
-                
-            if periodo_selecionado == "Últimos 7 dias":
-                start_date_velo = hoje - datetime.timedelta(days=7)
-                end_date_velo = hoje
-            elif periodo_selecionado == "Últimos 30 dias":
-                start_date_velo = hoje - datetime.timedelta(days=30)
-                end_date_velo = hoje
-            elif periodo_selecionado == "Últimos 90 dias (Trimestre)":
-                start_date_velo = hoje - datetime.timedelta(days=90)
-                end_date_velo = hoje
-            elif periodo_selecionado == "Ano Corrente":
-                start_date_velo = hoje.replace(month=1, day=1)
-                end_date_velo = hoje
-            elif periodo_selecionado == "Últimos 365 dias (Ano)":
-                start_date_velo = hoje - datetime.timedelta(days=365)
-                end_date_velo = hoje
-            elif periodo_selecionado == "Desde 01/01/2025":
-                start_date_velo = datetime.date(2025, 1, 1)
-                end_date_velo = hoje
-            elif periodo_selecionado == "Busca Personalizada":
-                start_date_velo = custom_start
-                end_date_velo = custom_end
-            else:
-                start_date_velo = hoje.replace(day=1) # Mês Atual
-                end_date_velo = hoje
-                
-                
-            mask_velo = (df_lancamentos["Data"].dt.date >= start_date_velo) & (df_lancamentos["Data"].dt.date <= end_date_velo)
-            filtered_velo = df_lancamentos.loc[mask_velo].copy()
-            
-            filtered_velo = filtered_velo.drop(columns=["Origem"])
-            filtered_velo = filtered_velo.sort_values(by="Data", ascending=False)
-            
-            st.metric(f"Total de Lançamentos no Período", len(filtered_velo))
-            st.dataframe(
-                filtered_velo, 
-                hide_index=True, 
-                use_container_width=True,
-                column_config={
-                    "Valor": st.column_config.NumberColumn(
-                        "Valor",
-                        format="%.2f",
-                        help="Valor do Lançamento",
-                        width="small"
-                    ),
-                    "Data": st.column_config.DateColumn(
-                        "Data",
-                        format="DD/MM/YYYY"
-                    )
-                }
-            )
-        else:
-            st.info("Nenhum lançamento Velo encontrado no banco de dados.")
-    except Exception as e:
-        st.error(f"Erro ao obter dados da Velo: {e}")
-        return
+                st.info("Nenhuma transação financeira da Velo encontrada.")
+        except Exception as e:
+            st.error(f"Erro ao carregar financeiro Velo: {e}")
 
-def pos_asaas_tab():
-    st.header("Posição ASAAS (Ao Vivo)")
-    st.write("Consulta em tempo real na API de Produção do banco Asaas.")
+def asaas_tab():
+    st.header("💳 ASAAS")
+    st.write("Boletos, contas a receber, valores a transferir para Inter.")
     st.markdown("---")
     
     try:
@@ -568,29 +482,68 @@ def pos_asaas_tab():
         c_top1, c_top2 = st.columns(2)
         c_top1.metric("Saldo Disponível (Asaas)", format_currency(saldo))
         c_top2.metric("Total de Clientes (Asaas)", len(customers))
+        
+        # Sweep Trigger (Simulated for UI)
+        st.write("### 🧹 Varredura Automática")
+        if saldo > 0:
+            st.info(f"R$ {format_currency(saldo)} aguardando transferência para o Banco Inter.")
+            if st.button("Executar Varredura Manual (Pix para Inter)"):
+                # This would call the logic in webhook_server.py or a dedicated worker
+                from webhook_server import trigger_sweep
+                success, msg = trigger_sweep()
+                if success:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        else:
+            st.write("Saldo zerado. Nada a transferir no momento.")
+
         st.markdown("---")
         
         # Boletos / Payments List
-        st.subheader("Boletos e Cobranças Geradas")
-        st.info("Buscando as cobranças dos últimos 30 dias na API oficial...")
+        st.subheader("📋 Boletos e Cobranças Geradas")
         
         hoje = datetime.date.today()
-        start_date = (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-        end_date = hoje.strftime("%Y-%m-%d")
+        opcoes_periodo = ["Últimos 30 dias", "Últimos 90 dias", "Ano Corrente", "Busca Personalizada"]
         
-        # We need a new method fetch all payments, not just RECEIVED ones for complete view
+        with st.form("asaas_filter"):
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            with c1:
+                periodo = st.selectbox("Período de Criação", opcoes_periodo)
+            with c2:
+                d_inicio = st.date_input("Início", value=hoje - datetime.timedelta(days=30))
+            with c3:
+                d_fim = st.date_input("Fim", value=hoje)
+            with c4:
+                st.write("")
+                st.write("")
+                st_asaas = st.form_submit_button("Filtrar")
+        
+        if periodo == "Últimos 30 dias":
+            start_date = (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+            end_date = hoje.strftime("%Y-%m-%d")
+        elif periodo == "Últimos 90 dias":
+            start_date = (hoje - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
+            end_date = hoje.strftime("%Y-%m-%d")
+        elif periodo == "Ano Corrente":
+            start_date = hoje.replace(month=1, day=1).strftime("%Y-%m-%d")
+            end_date = hoje.strftime("%Y-%m-%d")
+        else:
+            start_date = d_inicio.strftime("%Y-%m-%d")
+            end_date = d_fim.strftime("%Y-%m-%d")
+
         pagamentos = client.get_all_payments(start_date, end_date)
         
         if pagamentos:
             df_pgs = pd.DataFrame(pagamentos)
             
             # Translate keys for UI
-            # Keep only: id, value, netValue, dueDate, status, customer
             df_ui = pd.DataFrame({
                 "Nº Cobrança": df_pgs.get("id", ""),
                 "Vencimento": pd.to_datetime(df_pgs.get("dueDate", "")).dt.strftime("%d/%m/%Y"),
-                "Valor Bruto": df_pgs.get("value", 0.0).apply(format_currency),
-                "Valor Líquido": df_pgs.get("netValue", 0.0).apply(format_currency),
+                "Valor Bruto": df_pgs.get("value", 0.0),
+                "Valor Líquido": df_pgs.get("netValue", 0.0),
                 "Status": df_pgs.get("status", "")
             })
             
@@ -610,15 +563,25 @@ def pos_asaas_tab():
             p_vencidos = len(df_pgs[df_pgs["status"] == "OVERDUE"])
             p_pendentes = len(df_pgs[df_pgs["status"] == "PENDING"])
             
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Cobranças Pagas", p_pagos)
-            c2.metric("Cobranças Pendentes", p_pendentes)
-            c3.metric("Boletos Vencidos", p_vencidos)
+            mc1, mc2, mc3 = st.columns(3)
+            mc1.metric("Boletos Pagos", p_pagos)
+            mc2.metric("Pendentes", p_pendentes)
+            mc3.metric("Vencidos", p_vencidos)
             
-            st.dataframe(df_ui, use_container_width=True, hide_index=True)
-            
+            st.dataframe(
+                df_ui, 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "Valor Bruto": st.column_config.NumberColumn("Valor Bruto", format="R$ %.2f"),
+                    "Valor Líquido": st.column_config.NumberColumn("Valor Líquido", format="R$ %.2f")
+                }
+            )
         else:
-            st.warning("Nenhuma cobrança encontrada nos últimos 30 dias.")
+            st.warning("Nenhuma cobrança encontrada no período selecionado.")
+
+    except Exception as e:
+        st.error(f"Erro ao conectar com API do Asaas: {e}")
 
     except Exception as e:
         st.error(f"Erro ao conectar com API do Asaas: {e}")
@@ -754,8 +717,8 @@ def receitas_tab():
     )
 
 def despesas_tab():
-    st.header("Despesas")
-    st.write("Transações de saída da Frota.")
+    st.header("📉 Despesas")
+    st.write("Royalties, contador, taxa de aluguel de espaço, cooperloc, fundo de marketing, taxa de publicidade, licenciamento, IPVA, seguros, pró-labore.")
     
     db = DatabaseManager()
     
@@ -766,37 +729,42 @@ def despesas_tab():
     except Exception:
         motos = []
         
-    if not motos:
-        st.warning("Nenhuma moto cadastrada no banco de dados. Cadastre motos primeiro acessando o banco.")
-    else:
-        with st.form("manual_entry_form"):
-            col_placa, col_data = st.columns(2)
-            with col_placa:
-                sel_placa = st.selectbox("Moto (Placa)", motos)
-            with col_data:
-                sel_data = st.date_input("Data da Despesa", format="DD/MM/YYYY")
-                
-            col_origem, col_valor, col_status = st.columns(3)
-            with col_origem:
-                sel_origem = st.selectbox("Origem", ["VELO", "OUTROS"])
-            with col_valor:
-                sel_valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
-            with col_status:
-                sel_status = st.selectbox("Status", ["pago", "pendente"], key="status_despesa")
-                
-            submit_btn = st.form_submit_button("Registrar Despesa")
+    with st.form("manual_entry_form"):
+        col_cat, col_placa, col_data = st.columns(3)
+        with col_cat:
+            categoria = st.selectbox("Categoria", [
+                "Royalties", "Contador", "Taxa de aluguel de espaço", "Cooperloc", 
+                "Fundo de marketing", "Taxa de publicidade", "Licenciamento", 
+                "IPVA", "Seguros", "Pró-labore"
+            ])
+        with col_placa:
+            sel_placa = st.selectbox("Moto (Placa) [Opcional]", ["Geral/Administrativo"] + motos)
+        with col_data:
+            sel_data = st.date_input("Data da Despesa", format="DD/MM/YYYY")
             
-            if submit_btn:
-                db.add_transaction(
-                    origem=sel_origem,
-                    tipo="saida",
-                    valor=sel_valor,
-                    data=sel_data.strftime("%Y-%m-%d"),
-                    status=sel_status,
-                    placa_moto=sel_placa
-                )
-                st.success(f"Despesa de R${sel_valor:.2f} registrada para a moto {sel_placa} com sucesso!")
-                st.rerun()
+        col_origem, col_valor, col_status = st.columns(3)
+        with col_origem:
+            sel_origem = st.selectbox("Conta de Origem", ["Inter", "ASAAS", "Outros"])
+        with col_valor:
+            sel_valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
+        with col_status:
+            sel_status = st.selectbox("Status", ["pago", "pendente"], key="status_despesa")
+            
+        submit_btn = st.form_submit_button("Registrar Despesa")
+        
+        if submit_btn:
+            db.add_transaction(
+                origem=sel_origem,
+                tipo="saida",
+                valor=sel_valor,
+                data=sel_data.strftime("%Y-%m-%d"),
+                status=sel_status,
+                placa_moto=sel_placa if sel_placa != "Geral/Administrativo" else None
+                # Note: We might want to store the category in the database too.
+                # For now, adding it to description or similar if we have it.
+            )
+            st.success(f"Despesa de {categoria} registrada com sucesso!")
+            st.rerun()
                 
     st.markdown("---")
     st.subheader("Histórico de Despesas")
@@ -1019,12 +987,11 @@ def config_ui_tab():
                 
                 todas_abas = [
                     "Dashboard",
-                    "Posição Inter",
-                    "Posição Velo",
-                    "Receitas",
+                    "ASAAS",
+                    "Inter",
+                    "Velo",
                     "Despesas",
-                    "Configurações",
-                    "Dados para Contador"
+                    "Configurações"
                 ]
                 
                 new_perms = st.multiselect("Abas Permitidas", todas_abas, default=["Dashboard", "Receitas", "Despesas"])
@@ -1079,15 +1046,11 @@ def config_ui_tab():
                     with col2:
                         todas_abas = [
                             "Dashboard",
-                            "Frota",
-                            "Locatários",
-                            "Posição Inter",
-                            "Posição Asaas",
-                            "Posição Velo",
-                            "Receitas",
+                            "ASAAS",
+                            "Inter",
+                            "Velo",
                             "Despesas",
-                            "Configurações",
-                            "Dados para Contador"
+                            "Configurações"
                         ]
                         
                         st.write("**Acesso aos Módulos (Selecione Individualmente):**")
@@ -1262,14 +1225,11 @@ def main():
         if st.session_state.user_role == "admin":
             available_tabs = [
                 "Dashboard",
-                "Frota",
-                "Locatários",
-                "Posição Inter",
-                "Posição Velo",
-                "Receitas",
+                "ASAAS",
+                "Inter",
+                "Velo",
                 "Despesas",
-                "Configurações",
-                "Dados para Contador"
+                "Configurações"
             ]
         else:
             if not perms:
@@ -1277,10 +1237,7 @@ def main():
             else:
                 available_tabs = [p.strip() for p in perms.split(",") if p.strip()]
         
-        # DEV OVERRIDE (to ensure Locatários works for admin bypassing login)
-        if st.session_state.user_role == "admin" and "Locatários" not in perms:
-            st.session_state.user_permissions += ",Locatários"
-            available_tabs.insert(2, "Locatários")
+        # DEV OVERRIDE REMOVED
         
         if "active_tab" not in st.session_state:
             st.session_state.active_tab = "Dashboard"
@@ -1296,24 +1253,16 @@ def main():
         # Router
         if selection == "Dashboard":
             dashboard_tab()
-        elif selection == "Frota":
-            frota_tab()
-        elif selection == "Locatários":
-            locatarios_tab()
-        elif selection == "Posição Inter":
-            pos_inter_tab()
-        elif selection == "Posição Asaas":
-            pos_asaas_tab()
-        elif selection == "Posição Velo":
-            pos_velo_tab()
-        elif selection == "Receitas":
-            receitas_tab()
+        elif selection == "ASAAS":
+            asaas_tab()
+        elif selection == "Inter":
+            inter_tab()
+        elif selection == "Velo":
+            velo_tab()
         elif selection == "Despesas":
             despesas_tab()
         elif selection == "Configurações":
             config_ui_tab()
-        elif selection == "Dados para Contador":
-            dados_contador_tab()
 
 if __name__ == "__main__":
     main()

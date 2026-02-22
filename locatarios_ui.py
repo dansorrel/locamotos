@@ -8,8 +8,8 @@ def locatarios_tab():
     db = DatabaseManager()
 
     # Form to Add Locatário
-    with st.expander("➕ Cadastrar Novo Locatário (Manual)", expanded=False):
-        st.info("Cadastro manual. Futuramente os dados virão da API do ASAAS.")
+    with st.expander("👤 Gerenciar Pilotos", expanded=True):
+        st.info("Aqui você gerencia os pilotos vinculados à Velo e sincroniza com os dados de cobrança do Asaas.")
         with st.form("form_add_locatario", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
@@ -56,11 +56,11 @@ def locatarios_tab():
 
     st.markdown("---")
     
-    col_t1, col_t2 = st.columns([3, 1])
+    col_t1, col_t2 = st.columns([2, 2])
     with col_t1:
-        st.subheader("Locatários Cadastrados")
+        st.subheader("🏁 Listagem Unificada (Velo + Asaas)")
     with col_t2:
-        if st.button("🔄 Sincronizar com Asaas", use_container_width=True):
+        if st.button("🔄 Sincronizar Pilotos com ASAAS", use_container_width=True, type="primary"):
             try:
                 from asaas_client import AsaasClient
                 client = AsaasClient()
