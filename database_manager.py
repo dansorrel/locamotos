@@ -14,13 +14,21 @@ class DatabaseManager:
         pass
 
     def get_connection(self):
-        return pymysql.connect(
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASS,
-            database=DB_NAME,
-            charset='utf8mb4'
-        )
+        try:
+            return pymysql.connect(
+                host=DB_HOST,
+                user=DB_USER,
+                password=DB_PASS,
+                database=DB_NAME,
+                charset='utf8mb4',
+                connect_timeout=10
+            )
+        except Exception as e:
+            print(f"!!! DATABASE CONNECTION ERROR !!!")
+            print(f"Host: {DB_HOST}")
+            print(f"User: {DB_USER}")
+            print(f"Error Detail: {str(e)}")
+            raise e
 
     # --- Configurações (Persistence for APIs) ---
     def set_config(self, chave, valor):
