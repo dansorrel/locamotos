@@ -531,11 +531,11 @@ def asaas_tab():
                 "Vencimento": pd.to_datetime(df_pgs.get("dueDate", "")).dt.strftime("%d/%m/%Y"),
                 "Valor Original": df_pgs.get("value", 0.0),
                 "Valor Cobrado": df_pgs.apply(lambda row: 
-                    row.get("value", 0.0) + 
-                    (row.get("interestValue") if "interestValue" in row else 0.0) + 
-                    (row.get("fineValue") if "fineValue" in row else 0.0) - 
+                    (row.get("value") or 0.0) + 
+                    (row.get("interestValue") or 0.0) + 
+                    (row.get("fineValue") or 0.0) - 
                     (row.get("discount", {}).get("value", 0.0) if isinstance(row.get("discount"), dict) else 0.0)
-                    if row.get("status") in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"] else row.get("value", 0.0), axis=1),
+                    if row.get("status") in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"] else (row.get("value") or 0.0), axis=1),
                 "Status": df_pgs.get("status", "")
             })
             
