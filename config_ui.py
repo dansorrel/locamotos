@@ -530,8 +530,8 @@ def asaas_tab():
                 "Sacado": df_pgs.get("customer", "").map(lambda c_id: customer_map.get(c_id, "Desconhecido")),
                 "Vencimento": pd.to_datetime(df_pgs.get("dueDate", "")).dt.strftime("%d/%m/%Y"),
                 "Valor Bruto": df_pgs.get("value", 0.0),
-                "Multa": df_pgs.get("fineValue", 0.0).fillna(0.0),
-                "Juros": df_pgs.get("interestValue", 0.0).fillna(0.0),
+                "Multa": df_pgs["fineValue"].fillna(0.0) if "fineValue" in df_pgs.columns else 0.0,
+                "Juros": df_pgs["interestValue"].fillna(0.0) if "interestValue" in df_pgs.columns else 0.0,
                 "Total Pago": df_pgs.apply(lambda row: 
                     row.get("value", 0.0) + 
                     (row.get("interestValue") or 0.0) + 
