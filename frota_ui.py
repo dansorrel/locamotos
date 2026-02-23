@@ -23,12 +23,12 @@ def frota_tab():
         return
         
     for m in motos_list:
-        p_placa, p_modelo, p_disp, p_loc, p_valor = m
+        p_placa, p_modelo, p_disp, p_loc, p_valor, p_odometro = m
         with st.expander(f"🏍️ {p_placa} - {p_modelo} ({p_disp})"):
             details = db.get_moto_details(p_placa)
             if details:
                  (d_placa, d_modelo, d_data, d_valor, d_despesas, d_manut, d_rev, d_oleo, d_disp, d_loc, 
-                  d_docn, d_doct, d_ipvan, d_ipvat, d_crlvn, d_crlvt) = details
+                  d_docn, d_doct, d_ipvan, d_ipvat, d_crlvn, d_crlvt, d_odometro) = details
                  
                  # Criação das Abas
                  aba_dados, aba_manutencao, aba_oleo, aba_valores = st.tabs([
@@ -45,6 +45,26 @@ def frota_tab():
                      c1.markdown(f"**Status:** {d_disp}")
                      c2.markdown(f"**Locatário Atual:** {d_loc or 'Nenhum'}")
                      c2.markdown(f"**Data da Compra:** {d_data}")
+                     
+                     st.write("---")
+                     with st.form(f"form_update_odometro_{d_placa}"):
+                         # Default value is current odometer, user can update it manually
+                         # Eventually, it will come from Velo API
+                         new_odo = st.number_input("Odômetro / KM (Atualizar Manualmente)", min_value=0.0, value=float(d_odometro or 0.0), step=100.0)
+                         btn_odo = st.form_submit_button("Salvar KM")
+                         if btn_odo:
+                             # We only update the odometer. A dedicated helper is best, but since we didn't add it to db manager
+                             # cleanly, we can use the full update_moto but we don't want to overwrite files.
+                             # Let's just use the direct query:
+                             conn = db.get_connection()
+                             try:
+                                 with conn.cursor() as cursor:
+                                     cursor.execute("UPDATE motos SET odometro = %s WHERE placa = %s", (new_odo, d_placa))
+                                 conn.commit()
+                             finally:
+                                 conn.close()
+                             st.success(f"KM da moto {d_placa} atualizado para {new_odo}!")
+                             st.rerun()
                      
                      st.write("### Arquivos")
                      fc1, fc2, fc3 = st.columns(3)
@@ -99,6 +119,10 @@ def frota_tab():
                      taxa_depreciacao = min(0.99, (meses_uso * 0.01)) # Limite máx de perda de 99% pra não ficar negativo
                      valor_depreciado = valor_orig - (valor_orig * taxa_depreciacao)
                      
+                     # Usar odômetro real (d_odometro) se maior que 0, senão usar estimativa
+                     km_display = float(d_odometro) if d_odometro and float(d_odometro) > 0 else km_estimada
+                     km_label = "KM Registrado (Odômetro)" if d_odometro and float(d_odometro) > 0 else "Estimativa de Odômetro (350km/dia)"
+                     
                      with vcol1:
                          st.markdown("### Valores da Moto")
                          st.markdown(f"**Valor de Compra (Original):** {format_currency(valor_orig)}")
@@ -106,7 +130,7 @@ def frota_tab():
                          
                      with vcol2:
                          st.markdown("### Depreciação Estimada")
-                         st.metric("Estimativa de Odômetro", f"{km_estimada:,} km".replace(",", "."))
+                         st.metric(km_label, f"{km_display:,.0f} km".replace(",", "."))
                          st.metric("Valor Atual de Mercado", format_currency(valor_depreciado), delta=f"-{taxa_depreciacao*100:.0f}% Comercial", delta_color="inverse")
 
     st.markdown('---')

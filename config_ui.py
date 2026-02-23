@@ -208,13 +208,13 @@ def dashboard_tab():
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.info(f"🏍️ **Gestão de Frota**\n\nTotal: {total_motos} | Locadas: {motos_alugadas} | Livres: {motos_disp}")
-        st.button("Acessar Frota", use_container_width=True, on_click=change_tab_state, args=("Frota",))
+        st.button("Acessar Frota", use_container_width=True, on_click=change_tab_state, args=("Velo",))
     with c2:
         st.info(f"👤 **Locatários**\n\nClientes Ativos: {locat_ativos}\n\nㅤ")
-        st.button("Acessar Pilotos", use_container_width=True, on_click=change_tab_state, args=("Locatários",))
+        st.button("Acessar Pilotos", use_container_width=True, on_click=change_tab_state, args=("Velo",))
     with c3:
         st.info(f"📈 **Receitas**\n\nA Receber no Mês:\nR$ {format_currency(rec_mes_pend)}")
-        st.button("Acessar Receitas", use_container_width=True, on_click=change_tab_state, args=("Receitas",))
+        st.button("Acessar Receitas", use_container_width=True, on_click=change_tab_state, args=("Dashboard",)) # Receitas doesn't have a top-level tab right now except maybe dashboard? For now, dashboard.
     with c4:
         st.info(f"📉 **Despesas**\n\nVence Hoje: R$ {format_currency(desp_hoje)}\nA Pagar no Mês: R$ {format_currency(desp_mes)}")
         st.button("Acessar Despesas", use_container_width=True, on_click=change_tab_state, args=("Despesas",))
@@ -223,10 +223,10 @@ def dashboard_tab():
     bc1, bc2 = st.columns(2)
     with bc1:
         st.success(f"🏦 **Banco Inter**\n\nSaldo Online: R$ {format_currency(saldo_inter)}")
-        st.button("Ver Extrato Oficial", on_click=change_tab_state, args=("Posição Inter",))
+        st.button("Ver Extrato Oficial", on_click=change_tab_state, args=("Inter",))
     with bc2:
         st.warning(f"💳 **Velo**\n\nCobranças Pendentes: {velo_count} (R$ {format_currency(velo_pend)})")
-        st.button("Acessar Velo", on_click=change_tab_state, args=("Posição Velo",), key="btn_dash_velo")
+        st.button("Acessar Velo", on_click=change_tab_state, args=("Velo",), key="btn_dash_velo")
 
     st.write("")
     dbc1, dbc2 = st.columns(2)

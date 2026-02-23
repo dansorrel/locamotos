@@ -72,7 +72,8 @@ class DatabaseManager:
     def add_moto(self, placa, modelo, data_compra, valor_compra, despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario, 
                  doc_file=None, doc_name=None, doc_type=None, 
                  ipva_file=None, ipva_name=None, ipva_type=None, 
-                 crlv_file=None, crlv_name=None, crlv_type=None):
+                 crlv_file=None, crlv_name=None, crlv_type=None,
+                 odometro=0.0):
         conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
@@ -82,15 +83,17 @@ class DatabaseManager:
                         despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario,
                         doc_file, doc_name, doc_type,
                         ipva_file, ipva_name, ipva_type,
-                        crlv_file, crlv_name, crlv_type
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        crlv_file, crlv_name, crlv_type,
+                        odometro
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """
                 cursor.execute(query, (
                     placa, modelo, data_compra, valor_compra,
                     despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario,
                     doc_file, doc_name, doc_type,
                     ipva_file, ipva_name, ipva_type,
-                    crlv_file, crlv_name, crlv_type
+                    crlv_file, crlv_name, crlv_type,
+                    odometro
                 ))
             conn.commit()
             return True
@@ -102,7 +105,8 @@ class DatabaseManager:
     def update_moto(self, placa, modelo, data_compra, valor_compra, despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario, 
                  doc_file=None, doc_name=None, doc_type=None, 
                  ipva_file=None, ipva_name=None, ipva_type=None, 
-                 crlv_file=None, crlv_name=None, crlv_type=None):
+                 crlv_file=None, crlv_name=None, crlv_type=None,
+                 odometro=0.0):
         conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
@@ -110,9 +114,9 @@ class DatabaseManager:
                 updates = [
                     "modelo = %s", "data_compra = %s", "valor_compra = %s",
                     "despesas = %s", "manutencao = %s", "revisao = %s", "troca_oleo = %s",
-                    "disponibilidade = %s", "locatario = %s"
+                    "disponibilidade = %s", "locatario = %s", "odometro = %s"
                 ]
-                params = [modelo, data_compra, valor_compra, despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario]
+                params = [modelo, data_compra, valor_compra, despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario, odometro]
 
                 # Conditionally update files if provided
                 if doc_file is not None or doc_name is not None:
@@ -154,7 +158,7 @@ class DatabaseManager:
                 query = """
                 SELECT 
                     placa, modelo, data_compra, valor_compra, despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario,
-                    doc_name, doc_type, ipva_name, ipva_type, crlv_name, crlv_type
+                    doc_name, doc_type, ipva_name, ipva_type, crlv_name, crlv_type, odometro
                 FROM motos WHERE placa = %s
                 """
                 cursor.execute(query, (placa,))
@@ -179,7 +183,7 @@ class DatabaseManager:
             with conn.cursor() as cursor:
                 query = """
                 SELECT 
-                    placa, modelo, disponibilidade, locatario, valor_compra
+                    placa, modelo, disponibilidade, locatario, valor_compra, odometro
                 FROM motos
                 ORDER BY placa ASC
                 """
