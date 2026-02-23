@@ -429,29 +429,137 @@ def velo_tab():
         frota_tab()
         
     with tab_financeiro:
-        st.subheader("Cobranças e Valores a Receber (Velo)")
-        # This part combines logic from the old pos_velo_tab
-        db = DatabaseManager()
+        st.subheader("Cobranças e Valores a Receber (Asaas)")
+        
+        hoje = datetime.date.today()
+        opcoes_periodo = [
+            "Desde 01/01/2025",
+            "Mês Atual",
+            "Ano Corrente",
+            "Últimos 30 dias",
+            "Últimos 90 dias",
+            "Busca Personalizada"
+        ]
+        
+        with st.form("velo_fin_filter"):
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            with c1:
+                periodo = st.selectbox("Período de Criação", opcoes_periodo)
+            with c2:
+                d_inicio = st.date_input("Início", value=datetime.date(2025, 1, 1))
+            with c3:
+                d_fim = st.date_input("Fim", value=hoje)
+            with c4:
+                st.write("")
+                st.write("")
+                st_velo_fin = st.form_submit_button("Filtrar")
+                
+        if periodo == "Desde 01/01/2025":
+            start_date = "2025-01-01"
+            end_date = hoje.strftime("%Y-%m-%d")
+        elif periodo == "Mês Atual":
+            start_date = hoje.replace(day=1).strftime("%Y-%m-%d")
+            end_date = hoje.strftime("%Y-%m-%d")
+        elif periodo == "Ano Corrente":
+            start_date = hoje.replace(month=1, day=1).strftime("%Y-%m-%d")
+            end_date = hoje.strftime("%Y-%m-%d")
+        elif periodo == "Últimos 30 dias":
+            start_date = (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+            end_date = hoje.strftime("%Y-%m-%d")
+        elif periodo == "Últimos 90 dias":
+            start_date = (hoje - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
+            end_date = hoje.strftime("%Y-%m-%d")
+        else:
+            start_date = d_inicio.strftime("%Y-%m-%d")
+            end_date = d_fim.strftime("%Y-%m-%d")
+
         try:
-            transacoes = db.get_transactions()
-            # Filter transactions originating from Velo or associated with motos/locatarios manually
-            all_velo = [t for t in transacoes if t[1] == 'VELO']
+            from asaas_client import AsaasClient
+            client = AsaasClient()
+            customers = client.get_customers()
+            customer_map = {c.get("id"): c.get("name", "Desconhecido") for c in customers}
             
-            if all_velo:
-                df = pd.DataFrame(all_velo, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa"])
-                st.dataframe(
-                    df.sort_values(by="Data", ascending=False),
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
-                        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY")
-                    }
-                )
+            with st.spinner("Buscando boletos no ASAAS..."):
+                pagamentos = client.get_all_payments(start_date, end_date)
+            
+            if pagamentos:
+                df_pgs = pd.DataFrame(pagamentos)
+                
+                df_pgs["Valor Cobrado"] = df_pgs.apply(lambda row: 
+                    (row.get("value") or 0.0) + 
+                    (row.get("interestValue") or 0.0) + 
+                    (row.get("fineValue") or 0.0) - 
+                    (row.get("discount", {}).get("value", 0.0) if isinstance(row.get("discount"), dict) else 0.0)
+                    if row.get("status") in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"] else (row.get("value") or 0.0), axis=1)
+                
+                df_pgs["Sacado"] = df_pgs.get("customer", "").map(lambda c_id: customer_map.get(c_id, "Desconhecido"))
+                
+                def format_date_safe(date_str):
+                    if not date_str: return ""
+                    return pd.to_datetime(date_str).strftime("%d/%m/%Y")
+                    
+                df_pgs["Vencimento"] = df_pgs.get("dueDate", "").apply(format_date_safe)
+                if "paymentDate" in df_pgs.columns:
+                    df_pgs["Pagamento"] = df_pgs.get("paymentDate", "").apply(format_date_safe)
+                else:
+                    df_pgs["Pagamento"] = ""
+                
+                status_map = {
+                    "PENDING": "🟡 Pendente",
+                    "RECEIVED": "🟢 Recebido",
+                    "CONFIRMED": "🟢 Confirmado",
+                    "OVERDUE": "🔴 Vencido",
+                    "REFUNDED": "🔄 Estornado",
+                    "RECEIVED_IN_CASH": "💵 Recebido Físico"
+                }
+                df_pgs["Status"] = df_pgs.get("status", "").map(lambda s: status_map.get(s, s))
+                
+                grouped = df_pgs.groupby("Sacado")
+                
+                st.write(f"Encontrados registros para **{len(grouped)}** pilotos no período.")
+                
+                for sacado, group in sorted(grouped):
+                    pagos_mask = group.get("status", "").isin(["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"])
+                    pagos_df = group[pagos_mask]
+                    pendentes_df = group[~pagos_mask & (group.get("status", "") != "REFUNDED")]
+                    
+                    total_pago = pagos_df["Valor Cobrado"].sum()
+                    total_pendente = pendentes_df["Valor Cobrado"].sum()
+                    
+                    with st.expander(f"👤 {sacado} | Pago: R$ {total_pago:,.2f} | A Receber: R$ {total_pendente:,.2f}"):
+                        pc1, pc2 = st.columns(2)
+                        
+                        with pc1:
+                            st.markdown("##### ✅ Pagos")
+                            if not pagos_df.empty:
+                                show_pagos = pagos_df[["Pagamento", "Vencimento", "Valor Cobrado", "Status"]].copy()
+                                st.dataframe(
+                                    show_pagos, 
+                                    hide_index=True, 
+                                    use_container_width=True,
+                                    column_config={"Valor Cobrado": st.column_config.NumberColumn("Valor Cobrado", format="R$ %.2f")}
+                                )
+                            else:
+                                st.info("Nenhum boleto pago no período.")
+                                
+                        with pc2:
+                            st.markdown("##### ⏳ A Receber / Vencidos")
+                            if not pendentes_df.empty:
+                                show_pendentes = pendentes_df[["Vencimento", "Valor Cobrado", "Status"]].copy()
+                                show_pendentes = show_pendentes.sort_values(by="Vencimento")
+                                st.dataframe(
+                                    show_pendentes, 
+                                    hide_index=True, 
+                                    use_container_width=True,
+                                    column_config={"Valor Cobrado": st.column_config.NumberColumn("Valor Cobrado", format="R$ %.2f")}
+                                )
+                            else:
+                                st.info("Nenhum boleto pendente no período.")
             else:
-                st.info("Nenhuma transação financeira da Velo encontrada.")
+                st.info("Nenhum boleto gerado no Asaas neste período.")
+                
         except Exception as e:
-            st.error(f"Erro ao carregar financeiro Velo: {e}")
+            st.error(f"Erro ao carregar os dados financeiros do Asaas: {e}")
 
 def asaas_tab():
     st.header("💳 ASAAS")

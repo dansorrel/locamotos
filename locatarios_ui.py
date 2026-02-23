@@ -7,53 +7,6 @@ def locatarios_tab():
     st.header("Gestão de Locatários (Pilotos)")
     db = DatabaseManager()
 
-    # Form to Add Locatário
-    with st.expander("👤 Gerenciar Pilotos", expanded=True):
-        st.info("Aqui você gerencia os pilotos vinculados à Velo e sincroniza com os dados de cobrança do Asaas.")
-        with st.form("form_add_locatario", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                nome = st.text_input("Nome Completo *")
-                cpf = st.text_input("CPF *", placeholder="Apenas números")
-                telefone = st.text_input("Telefone / WhatsApp")
-                email = st.text_input("E-mail")
-            with col2:
-                endereco = st.text_area("Endereço Completo")
-                cnh = st.text_input("Número da CNH")
-                
-                # Fetch available motos to associate
-                motos_list = db.get_motos_list()
-                placas_disponiveis = ["Nenhuma"] + [m[0] for m in motos_list] if motos_list else ["Nenhuma"]
-                placa_associada = st.selectbox("Moto Associada Atualmente", placas_disponiveis)
-
-            st.write("### Documento do Piloto (Opcional)")
-            cnh_file = st.file_uploader("Upload da CNH (PDF, PNG, JPG)", type=["pdf", "png", "jpg"], key="up_cnh")
-
-            submit = st.form_submit_button("Salvar Locatário no Banco de Dados")
-            if submit:
-                if not nome or not cnh:
-                    st.error("Nome e CNH são campos fortemente recomendados. Nome e CPF são obrigatórios.")
-                if not nome or not cpf:
-                    st.error("Campos Nome e CPF são obrigatórios.")
-                else:
-                     # Associar Placa se diferente de Nenhuma
-                     placa_final = None if placa_associada == "Nenhuma" else placa_associada
-                     
-                     # Ler arquivo da CNH
-                     cf_bytes = cnh_file.read() if cnh_file else None
-                     cf_name = cnh_file.name if cnh_file else None
-                     cf_type = cnh_file.type if cnh_file else None
-
-                     success = db.add_locatario(
-                         nome, cpf, endereco, telefone, email, cnh, placa_final,
-                         cf_bytes, cf_name, cf_type
-                     )
-                     if success:
-                         st.success(f"Locatário {nome} cadastrado com sucesso!")
-                         st.rerun()
-                     else:
-                         st.error("Erro ao cadastrar. Verifique se o CPF já está registrado em outro perfil.")
-
     st.markdown("---")
     
     col_t1, col_t2 = st.columns([2, 2])
@@ -157,3 +110,52 @@ def locatarios_tab():
                                  st.rerun()
                              else:
                                  st.error("Erro ao excluir piloto.")
+
+    st.markdown('---')
+    # Form to Add Locatário
+    with st.expander("👤 Gerenciar Pilotos", expanded=True):
+        st.info("Aqui você gerencia os pilotos vinculados à Velo e sincroniza com os dados de cobrança do Asaas.")
+        with st.form("form_add_locatario", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                nome = st.text_input("Nome Completo *")
+                cpf = st.text_input("CPF *", placeholder="Apenas números")
+                telefone = st.text_input("Telefone / WhatsApp")
+                email = st.text_input("E-mail")
+            with col2:
+                endereco = st.text_area("Endereço Completo")
+                cnh = st.text_input("Número da CNH")
+                
+                # Fetch available motos to associate
+                motos_list = db.get_motos_list()
+                placas_disponiveis = ["Nenhuma"] + [m[0] for m in motos_list] if motos_list else ["Nenhuma"]
+                placa_associada = st.selectbox("Moto Associada Atualmente", placas_disponiveis)
+
+            st.write("### Documento do Piloto (Opcional)")
+            cnh_file = st.file_uploader("Upload da CNH (PDF, PNG, JPG)", type=["pdf", "png", "jpg"], key="up_cnh")
+
+            submit = st.form_submit_button("Salvar Locatário no Banco de Dados")
+            if submit:
+                if not nome or not cnh:
+                    st.error("Nome e CNH são campos fortemente recomendados. Nome e CPF são obrigatórios.")
+                if not nome or not cpf:
+                    st.error("Campos Nome e CPF são obrigatórios.")
+                else:
+                     # Associar Placa se diferente de Nenhuma
+                     placa_final = None if placa_associada == "Nenhuma" else placa_associada
+                     
+                     # Ler arquivo da CNH
+                     cf_bytes = cnh_file.read() if cnh_file else None
+                     cf_name = cnh_file.name if cnh_file else None
+                     cf_type = cnh_file.type if cnh_file else None
+
+                     success = db.add_locatario(
+                         nome, cpf, endereco, telefone, email, cnh, placa_final,
+                         cf_bytes, cf_name, cf_type
+                     )
+                     if success:
+                         st.success(f"Locatário {nome} cadastrado com sucesso!")
+                         st.rerun()
+                     else:
+                         st.error("Erro ao cadastrar. Verifique se o CPF já está registrado em outro perfil.")
+

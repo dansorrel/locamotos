@@ -14,65 +14,6 @@ def frota_tab():
     st.header("Gestão de Frota (Motos)")
     db = DatabaseManager()
 
-    # Form to Add Moto
-    with st.expander("➕ Cadastrar Nova Moto", expanded=False):
-        with st.form("form_add_moto", clear_on_submit=True):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                placa = st.text_input("Placa da Moto *", max_chars=10)
-                modelo = st.text_input("Modelo *")
-                disponibilidade = st.selectbox("Status", ["Disponível", "Alugada", "Oficina", "Vendida"])
-            with col2:
-                data_compra = st.date_input("Data da Compra")
-                valor_compra = st.number_input("Valor da Moto (R$)", min_value=0.0, format="%.2f")
-                locatario = st.text_input("Locatário Atual (Opcional)")
-            with col3:
-                despesas = st.text_area("Despesas Vinculadas", height=68)
-                manutencao = st.text_area("Histórico de Manutenção", height=68)
-                
-            c_rev, c_oleo = st.columns(2)
-            with c_rev:
-                 revisao = st.text_area("Próximas Revisões", height=68)
-            with c_oleo:
-                 troca_oleo = st.text_area("Troca de Óleo", height=68)
-
-            st.write("### Documentos Anexos (PDF, PNG, JPG)")
-            col_doc1, col_doc2, col_doc3 = st.columns(3)
-            with col_doc1:
-                doc_file = st.file_uploader("Documento Geral", type=["pdf", "png", "jpg"], key="doc")
-            with col_doc2:
-                ipva_file = st.file_uploader("Comprovante IPVA", type=["pdf", "png", "jpg"], key="ipva")
-            with col_doc3:
-                crlv_file = st.file_uploader("CRLV", type=["pdf", "png", "jpg"], key="crlv")
-
-            submit = st.form_submit_button("Salvar Moto no Banco de Dados")
-            if submit:
-                if not placa or not modelo:
-                    st.error("Placa e Modelo são obrigatórios.")
-                else:
-                    # Read Files if uploaded
-                    df_bytes = doc_file.read() if doc_file else None
-                    df_name = doc_file.name if doc_file else None
-                    df_type = doc_file.type if doc_file else None
-
-                    if_bytes = ipva_file.read() if ipva_file else None
-                    if_name = ipva_file.name if ipva_file else None
-                    if_type = ipva_file.type if ipva_file else None
-
-                    cf_bytes = crlv_file.read() if crlv_file else None
-                    cf_name = crlv_file.name if crlv_file else None
-                    cf_type = crlv_file.type if crlv_file else None
-
-                    success = db.add_moto(
-                        placa, modelo, data_compra, valor_compra, despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario,
-                        df_bytes, df_name, df_type, if_bytes, if_name, if_type, cf_bytes, cf_name, cf_type
-                    )
-                    if success:
-                        st.success(f"Moto {placa} cadastrada com sucesso!")
-                        st.rerun()
-                    else:
-                        st.error("Erro ao cadastrar. Verifique se a placa já existe.")
-
     st.markdown("---")
     st.subheader("Motos Cadastradas")
     
@@ -167,3 +108,64 @@ def frota_tab():
                          st.markdown("### Depreciação Estimada")
                          st.metric("Estimativa de Odômetro", f"{km_estimada:,} km".replace(",", "."))
                          st.metric("Valor Atual de Mercado", format_currency(valor_depreciado), delta=f"-{taxa_depreciacao*100:.0f}% Comercial", delta_color="inverse")
+
+    st.markdown('---')
+    # Form to Add Moto
+    with st.expander("➕ Cadastrar Nova Moto", expanded=False):
+        with st.form("form_add_moto", clear_on_submit=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                placa = st.text_input("Placa da Moto *", max_chars=10)
+                modelo = st.text_input("Modelo *")
+                disponibilidade = st.selectbox("Status", ["Disponível", "Alugada", "Oficina", "Vendida"])
+            with col2:
+                data_compra = st.date_input("Data da Compra")
+                valor_compra = st.number_input("Valor da Moto (R$)", min_value=0.0, format="%.2f")
+                locatario = st.text_input("Locatário Atual (Opcional)")
+            with col3:
+                despesas = st.text_area("Despesas Vinculadas", height=68)
+                manutencao = st.text_area("Histórico de Manutenção", height=68)
+                
+            c_rev, c_oleo = st.columns(2)
+            with c_rev:
+                 revisao = st.text_area("Próximas Revisões", height=68)
+            with c_oleo:
+                 troca_oleo = st.text_area("Troca de Óleo", height=68)
+
+            st.write("### Documentos Anexos (PDF, PNG, JPG)")
+            col_doc1, col_doc2, col_doc3 = st.columns(3)
+            with col_doc1:
+                doc_file = st.file_uploader("Documento Geral", type=["pdf", "png", "jpg"], key="doc")
+            with col_doc2:
+                ipva_file = st.file_uploader("Comprovante IPVA", type=["pdf", "png", "jpg"], key="ipva")
+            with col_doc3:
+                crlv_file = st.file_uploader("CRLV", type=["pdf", "png", "jpg"], key="crlv")
+
+            submit = st.form_submit_button("Salvar Moto no Banco de Dados")
+            if submit:
+                if not placa or not modelo:
+                    st.error("Placa e Modelo são obrigatórios.")
+                else:
+                    # Read Files if uploaded
+                    df_bytes = doc_file.read() if doc_file else None
+                    df_name = doc_file.name if doc_file else None
+                    df_type = doc_file.type if doc_file else None
+
+                    if_bytes = ipva_file.read() if ipva_file else None
+                    if_name = ipva_file.name if ipva_file else None
+                    if_type = ipva_file.type if ipva_file else None
+
+                    cf_bytes = crlv_file.read() if crlv_file else None
+                    cf_name = crlv_file.name if crlv_file else None
+                    cf_type = crlv_file.type if crlv_file else None
+
+                    success = db.add_moto(
+                        placa, modelo, data_compra, valor_compra, despesas, manutencao, revisao, troca_oleo, disponibilidade, locatario,
+                        df_bytes, df_name, df_type, if_bytes, if_name, if_type, cf_bytes, cf_name, cf_type
+                    )
+                    if success:
+                        st.success(f"Moto {placa} cadastrada com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao cadastrar. Verifique se a placa já existe.")
+
