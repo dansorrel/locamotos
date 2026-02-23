@@ -292,11 +292,7 @@ def inter_tab():
             saldo_atual = saldo_info.get("disponivel", 0.0)
             st.metric("Saldo Disponível (Inter)", format_currency(saldo_atual))
             
-            # --- Accountant Export Shortcut ---
-            st.markdown("---")
-            st.subheader("📁 Dados para Contador")
-            dados_contador_tab()
-            
+            # --- Extrato por Período ---
             st.markdown("---")
             st.subheader("📜 Extrato por Período (Recebidos ASAAS / Despesas)")
             
@@ -396,6 +392,12 @@ def inter_tab():
                     )
             else:
                 st.info("Nenhuma transação encontrada no período.")
+
+            # --- Accountant Export Shortcut ---
+            st.markdown("---")
+            st.subheader("📁 Dados para Contador")
+            dados_contador_tab()
+
                 
     except Exception as e:
         if hasattr(e, "response") and e.response is not None:
