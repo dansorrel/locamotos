@@ -46,25 +46,10 @@ def init_session_state():
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
         
-        # Check for 60-day auto-login
-        env_vars = load_env_vars()
-        remembered_user = env_vars.get("REMEMBERED_USER", "")
-        last_login_str = env_vars.get("LAST_LOGIN", "")
-        
-        if remembered_user and last_login_str:
-            try:
-                last_login = datetime.datetime.fromisoformat(last_login_str)
-                if (datetime.datetime.now() - last_login).days <= 60:
-                    db = DatabaseManager()
-                    user = db.get_user_by_username(remembered_user)
-                    if user and user[6] == "aprovado":
-                        st.session_state.logged_in = True
-                        st.session_state.user_id = user[0]
-                        st.session_state.user_name = user[1]
-                        st.session_state.user_role = user[5]
-                        st.session_state.user_permissions = user[7]
-            except Exception:
-                pass
+        # In a real environment, we'd use st.session_state or cookies
+        # Getting REMEMBERED_USER from global DB config is a security risk 
+        # as it logs everyone in as the same person.
+        # Removing global auto-login bypass.
                 
     if "user_id" not in st.session_state:
         st.session_state.user_id = None
@@ -83,11 +68,7 @@ def do_login(username_login, password, lembrar_user):
         if verify_password(senha_hash, password):
             if status == "aprovado":
                 if lembrar_user:
-                    save_env_var("REMEMBERED_USER", username_db)
-                    save_env_var("LAST_LOGIN", datetime.datetime.now().isoformat())
-                else:
-                    save_env_var("REMEMBERED_USER", "")
-                    save_env_var("LAST_LOGIN", "")
+                    st.toast("A funcionalidade 'Lembrar de mim' foi desativada temporariamente por segurança.")
                     
                 st.session_state.logged_in = True
                 st.session_state.user_id = user_id
@@ -120,10 +101,10 @@ def login_register_screen():
     
     st.header("Entrar no Sistema")
     with st.form("login_form"):
-        lembrado = env_vars.get("REMEMBERED_USER", "")
-        username_login = st.text_input("Usuário", value=lembrado)
+        # Check local browser session storage if implemented, else empty
+        username_login = st.text_input("Usuário")
         pass_login = st.text_input("Senha", type="password")
-        lembrar_user = st.checkbox("Lembrar meu usuário", value=bool(lembrado))
+        lembrar_user = st.checkbox("Lembrar meu usuário")
         
         submitted_login = st.form_submit_button("Entrar")
         if submitted_login:
