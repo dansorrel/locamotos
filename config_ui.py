@@ -530,12 +530,12 @@ def asaas_tab():
                 "Sacado": df_pgs.get("customer", "").map(lambda c_id: customer_map.get(c_id, "Desconhecido")),
                 "Vencimento": pd.to_datetime(df_pgs.get("dueDate", "")).dt.strftime("%d/%m/%Y"),
                 "Valor Bruto": df_pgs.get("value", 0.0),
-                "Multa": df_pgs.get("fineValue", df_pgs.apply(lambda row: row.get("fine", {}).get("value", 0.0) if isinstance(row.get("fine"), dict) else 0.0, axis=1)),
-                "Juros": df_pgs.get("interestValue", df_pgs.apply(lambda row: row.get("interest", {}).get("value", 0.0) if isinstance(row.get("interest"), dict) else 0.0, axis=1)),
+                "Multa": df_pgs.get("fineValue", 0.0).fillna(0.0),
+                "Juros": df_pgs.get("interestValue", 0.0).fillna(0.0),
                 "Total Pago": df_pgs.apply(lambda row: 
                     row.get("value", 0.0) + 
-                    (row.get("interestValue", 0.0) or (row.get("interest", {}).get("value", 0.0) if isinstance(row.get("interest"), dict) else 0.0)) + 
-                    (row.get("fineValue", 0.0) or (row.get("fine", {}).get("value", 0.0) if isinstance(row.get("fine"), dict) else 0.0)) - 
+                    (row.get("interestValue") or 0.0) + 
+                    (row.get("fineValue") or 0.0) - 
                     (row.get("discount", {}).get("value", 0.0) if isinstance(row.get("discount"), dict) else 0.0)
                     if row.get("status") in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"] else 0.0, axis=1),
                 "Status": df_pgs.get("status", "")
