@@ -529,15 +529,13 @@ def asaas_tab():
             df_ui = pd.DataFrame({
                 "Sacado": df_pgs.get("customer", "").map(lambda c_id: customer_map.get(c_id, "Desconhecido")),
                 "Vencimento": pd.to_datetime(df_pgs.get("dueDate", "")).dt.strftime("%d/%m/%Y"),
-                "Valor Bruto": df_pgs.get("value", 0.0),
-                "Multa": df_pgs["fineValue"].fillna(0.0) if "fineValue" in df_pgs.columns else 0.0,
-                "Juros": df_pgs["interestValue"].fillna(0.0) if "interestValue" in df_pgs.columns else 0.0,
-                "Total Pago": df_pgs.apply(lambda row: 
+                "Valor Original": df_pgs.get("value", 0.0),
+                "Valor Cobrado": df_pgs.apply(lambda row: 
                     row.get("value", 0.0) + 
-                    (row.get("interestValue") or 0.0) + 
-                    (row.get("fineValue") or 0.0) - 
+                    (row.get("interestValue") if "interestValue" in row else 0.0) + 
+                    (row.get("fineValue") if "fineValue" in row else 0.0) - 
                     (row.get("discount", {}).get("value", 0.0) if isinstance(row.get("discount"), dict) else 0.0)
-                    if row.get("status") in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"] else 0.0, axis=1),
+                    if row.get("status") in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"] else row.get("value", 0.0), axis=1),
                 "Status": df_pgs.get("status", "")
             })
             
@@ -562,15 +560,29 @@ def asaas_tab():
             mc2.metric("Pendentes", p_pendentes)
             mc3.metric("Vencidos", p_vencidos)
             
+            def highlight_diff(row):
+                # We need to format it to two decimals for comparison to avoid float precision issues
+                val_orig = round(row["Valor Original"], 2)
+                val_cobr = round(row["Valor Cobrado"], 2)
+                is_diff = val_orig != val_cobr
+                
+                style = []
+                for col in row.index:
+                    if col == "Valor Cobrado" and is_diff:
+                        style.append('color: red; font-weight: bold')
+                    else:
+                        style.append('')
+                return style
+
+            styled_df = df_ui.style.apply(highlight_diff, axis=1)
+            
             st.dataframe(
-                df_ui, 
+                styled_df, 
                 use_container_width=True, 
                 hide_index=True,
                 column_config={
-                    "Valor Bruto": st.column_config.NumberColumn("Valor Bruto", format="R$ %.2f"),
-                    "Multa": st.column_config.NumberColumn("Multa", format="R$ %.2f"),
-                    "Juros": st.column_config.NumberColumn("Juros", format="R$ %.2f"),
-                    "Total Pago": st.column_config.NumberColumn("Total Pago", format="R$ %.2f")
+                    "Valor Original": st.column_config.NumberColumn("Valor Original", format="R$ %.2f"),
+                    "Valor Cobrado": st.column_config.NumberColumn("Valor Cobrado", format="R$ %.2f")
                 }
             )
         else:
