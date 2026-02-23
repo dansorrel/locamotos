@@ -99,21 +99,25 @@ def login_register_screen():
     st.title("Locamotos - Acesso Restrito")
     env_vars = load_env_vars()
     
-    st.header("Entrar no Sistema")
-    with st.form("login_form"):
-        # Check local browser session storage if implemented, else empty
-        username_login = st.text_input("Usuário")
-        pass_login = st.text_input("Senha", type="password")
-        lembrar_user = st.checkbox("Lembrar meu usuário")
-        
-        submitted_login = st.form_submit_button("Entrar")
-        if submitted_login:
-            if username_login and pass_login:
-                do_login(username_login, pass_login, lembrar_user)
-            else:
-                st.error("Preencha todos os campos.")
-                
-    st.info("⚠️ Acesso restrito a usuários autorizados. Se você esqueceu sua senha ou precisa de acesso, contate o administrador.")
+    # Use columns to center the login form on desktop
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.header("Entrar no Sistema")
+        with st.form("login_form"):
+            # Check local browser session storage if implemented, else empty
+            username_login = st.text_input("Usuário")
+            pass_login = st.text_input("Senha", type="password")
+            lembrar_user = st.checkbox("Lembrar meu usuário")
+            
+            submitted_login = st.form_submit_button("Entrar")
+            if submitted_login:
+                if username_login and pass_login:
+                    do_login(username_login, pass_login, lembrar_user)
+                else:
+                    st.error("Preencha todos os campos.")
+                    
+        st.info("⚠️ Acesso restrito a usuários autorizados. Se você esqueceu sua senha ou precisa de acesso, contate o administrador.")
 
 # --- Dashboard Modules ---
 
@@ -517,10 +521,14 @@ def asaas_tab():
         pagamentos = client.get_all_payments(start_date, end_date)
         
         if pagamentos:
+            # Map customer IDs to Names
+            customer_map = {c.get("id"): c.get("name", "Desconhecido") for c in customers}
+            
             df_pgs = pd.DataFrame(pagamentos)
             
             # Translate keys for UI
             df_ui = pd.DataFrame({
+                "Sacado": df_pgs.get("customer", "").map(lambda c_id: customer_map.get(c_id, "Desconhecido")),
                 "Nº Cobrança": df_pgs.get("id", ""),
                 "Vencimento": pd.to_datetime(df_pgs.get("dueDate", "")).dt.strftime("%d/%m/%Y"),
                 "Valor Bruto": df_pgs.get("value", 0.0),
@@ -560,9 +568,6 @@ def asaas_tab():
             )
         else:
             st.warning("Nenhuma cobrança encontrada no período selecionado.")
-
-    except Exception as e:
-        st.error(f"Erro ao conectar com API do Asaas: {e}")
 
     except Exception as e:
         st.error(f"Erro ao conectar com API do Asaas: {e}")
