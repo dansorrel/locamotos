@@ -117,7 +117,7 @@ def frota_tab():
             with col1:
                 placa = st.text_input("Placa da Moto *", max_chars=10)
                 modelo = st.text_input("Modelo *")
-                disponibilidade = st.selectbox("Status", ["Disponível", "Alugada", "Oficina", "Vendida"])
+                disponibilidade = st.selectbox("Status", ["Disponível", "Indisponível", "Alugado", "Oficina", "Vendida"])
             with col2:
                 data_compra = st.date_input("Data da Compra")
                 valor_compra = st.number_input("Valor da Moto (R$)", min_value=0.0, format="%.2f")
