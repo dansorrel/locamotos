@@ -105,28 +105,26 @@ def frota_tab():
                  with aba_valores:
                      vcol1, vcol2 = st.columns(2)
                      
-                     # Matemática de Depreciação: 350km/dia = ~10.500km/mes.
-                     # Vamos estipular perda de mercado de 1% do valor da moto a cada mẽs de uso severo (aprox 10k km).
+                     # Matemática de Depreciação: Estipulando perda de mercado de 1% do valor da moto por mês de uso.
                      valor_orig = float(d_valor or 0)
                      data_compra = pd.to_datetime(d_data)
                      hoje = pd.to_datetime(datetime.date.today())
                      
                      dias_uso = (hoje - data_compra).days if pd.notnull(data_compra) else 0
                      meses_uso = max(0, dias_uso // 30)
-                     km_estimada = dias_uso * 350
                      
-                     # Depreciação de 1% ao mês (desgaste de 10.500 km)
+                     # Depreciação de 1% ao mês
                      taxa_depreciacao = min(0.99, (meses_uso * 0.01)) # Limite máx de perda de 99% pra não ficar negativo
                      valor_depreciado = valor_orig - (valor_orig * taxa_depreciacao)
                      
-                     # Usar odômetro real (d_odometro) se maior que 0, senão usar estimativa
-                     km_display = float(d_odometro) if d_odometro and float(d_odometro) > 0 else km_estimada
-                     km_label = "KM Registrado (Odômetro)" if d_odometro and float(d_odometro) > 0 else "Estimativa de Odômetro (350km/dia)"
+                     # Usar odômetro real (d_odometro)
+                     km_display = float(d_odometro or 0.0)
+                     km_label = "KM Registrado (Odômetro)"
                      
                      with vcol1:
                          st.markdown("### Valores da Moto")
                          st.markdown(f"**Valor de Compra (Original):** {format_currency(valor_orig)}")
-                         st.markdown(f"**Despesas Vinculadas:**\\n{d_despesas if d_despesas else 'Nenhuma'}")
+                         st.markdown(f"**Despesas Vinculadas:**\n{d_despesas if d_despesas else 'Nenhuma'}")
                          
                      with vcol2:
                          st.markdown("### Depreciação Estimada")
