@@ -526,13 +526,18 @@ def asaas_tab():
             
             df_pgs = pd.DataFrame(pagamentos)
             
-            # Translate keys for UI
             df_ui = pd.DataFrame({
                 "Sacado": df_pgs.get("customer", "").map(lambda c_id: customer_map.get(c_id, "Desconhecido")),
-                "Nº Cobrança": df_pgs.get("id", ""),
                 "Vencimento": pd.to_datetime(df_pgs.get("dueDate", "")).dt.strftime("%d/%m/%Y"),
                 "Valor Bruto": df_pgs.get("value", 0.0),
-                "Valor Líquido": df_pgs.get("netValue", 0.0),
+                "Multa": df_pgs.get("fineValue", df_pgs.apply(lambda row: row.get("fine", {}).get("value", 0.0) if isinstance(row.get("fine"), dict) else 0.0, axis=1)),
+                "Juros": df_pgs.get("interestValue", df_pgs.apply(lambda row: row.get("interest", {}).get("value", 0.0) if isinstance(row.get("interest"), dict) else 0.0, axis=1)),
+                "Total Pago": df_pgs.apply(lambda row: 
+                    row.get("value", 0.0) + 
+                    (row.get("interestValue", 0.0) or (row.get("interest", {}).get("value", 0.0) if isinstance(row.get("interest"), dict) else 0.0)) + 
+                    (row.get("fineValue", 0.0) or (row.get("fine", {}).get("value", 0.0) if isinstance(row.get("fine"), dict) else 0.0)) - 
+                    (row.get("discount", {}).get("value", 0.0) if isinstance(row.get("discount"), dict) else 0.0)
+                    if row.get("status") in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"] else 0.0, axis=1),
                 "Status": df_pgs.get("status", "")
             })
             
@@ -563,7 +568,9 @@ def asaas_tab():
                 hide_index=True,
                 column_config={
                     "Valor Bruto": st.column_config.NumberColumn("Valor Bruto", format="R$ %.2f"),
-                    "Valor Líquido": st.column_config.NumberColumn("Valor Líquido", format="R$ %.2f")
+                    "Multa": st.column_config.NumberColumn("Multa", format="R$ %.2f"),
+                    "Juros": st.column_config.NumberColumn("Juros", format="R$ %.2f"),
+                    "Total Pago": st.column_config.NumberColumn("Total Pago", format="R$ %.2f")
                 }
             )
         else:
