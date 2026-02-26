@@ -177,11 +177,10 @@ def dashboard_tab():
 
     # Frota
     try:
-        motos_list = db.get_all_motos()
-        locacoes = db.get_active_rentals()
+        motos_list = db.get_motos_list()
         total_motos = len(motos_list)
-        motos_alugadas = len(locacoes)
-        motos_disp = total_motos - motos_alugadas
+        motos_alugadas = sum(1 for m in motos_list if m[2] == "Alugado")
+        motos_disp = sum(1 for m in motos_list if m[2] == "Disponível")
     except Exception:
         total_motos = motos_alugadas = motos_disp = 0
         
@@ -374,11 +373,31 @@ def inter_tab():
             transacoes_inter = extrato.get("transacoes", [])
             if transacoes_inter:
                 df_inter = pd.DataFrame(transacoes_inter)
-                for date_col in ["dataInclusao", "dataTransacao", "dataLancamento"]:
-                    if date_col in df_inter.columns:
-                        df_inter[date_col] = pd.to_datetime(df_inter[date_col]).dt.strftime("%d/%m/%Y")
-                # Select important columns if available
-                cols_to_show = [c for c in ["dataLancamento", "dataTransacao", "dataInclusao", "tipoTransacao", "valor", "descricao"] if c in df_inter.columns]
+                
+                # Dynamically find any date columns to ensure we catch whatever the API returns
+                date_columns = [col for col in df_inter.columns if "data" in col.lower() or "date" in col.lower()]
+                for dc in date_columns:
+                    try:
+                        df_inter[dc] = pd.to_datetime(df_inter[dc]).dt.strftime("%d/%m/%Y")
+                    except:
+                        pass
+                
+                # Build columns to show, prioritizing the first found date column
+                cols_to_show = []
+                # First try the specific ones asked by user, otherwise fallback to any date column
+                if "dataLancamento" in df_inter.columns:
+                    cols_to_show.append("dataLancamento")
+                elif "dataTransacao" in df_inter.columns:
+                    cols_to_show.append("dataTransacao")
+                elif "dataInclusao" in df_inter.columns:
+                    cols_to_show.append("dataInclusao")
+                elif date_columns:
+                    cols_to_show.append(date_columns[0])
+                    
+                # Add the rest of the standard columns
+                for c in ["tipoTransacao", "valor", "descricao"]:
+                    if c in df_inter.columns:
+                        cols_to_show.append(c)
                 if cols_to_show:
                     if "valor" in cols_to_show:
                         st.dataframe(
