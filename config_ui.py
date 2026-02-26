@@ -217,45 +217,52 @@ def dashboard_tab():
         visiun_pend = visiun_df["Valor"].sum()
         visiun_count = len(visiun_df)
     
-    # Clickable squares for modules navigation
-    c1, c2, c3, c4 = st.columns(4)
+    # 1. Banco Inter
+    st.markdown("### 🏦 1. Posição Banco Inter")
+    st.success(f"Saldo Online: R$ {format_currency(saldo_inter)}")
+    st.button("Ver Extrato Oficial", on_click=change_tab_state, args=("Inter",))
+    
+    st.write("")
+
+    # 2. ASAAS
+    st.markdown("### 🏢 2. Posição ASAAS")
+    c1, c2 = st.columns([1,2])
     with c1:
+        st.info(f"Saldo Recebível: R$ {format_currency(saldo_asaas)}")
+    with c2:
+        st.write(f"**Métricas (30 dias):** {asaas_pagos} Recebimentos | {asaas_vencidos} Vencidos | Clientes Ativos: {asaas_count_cust}")
+    st.button("Acessar Asaas", on_click=change_tab_state, args=("ASAAS",))
+
+    st.write("")
+
+    # 3. Gestão e Financeiro Líquido
+    st.markdown("### 📊 3. Resultados e Gestão")
+    rc1, rc2, rc3 = st.columns(3)
+    
+    with rc1:
         st.info(f"🏍️ **Gestão de Frota**\n\nTotal: {total_motos} | Locadas: {motos_alugadas} | Livres: {motos_disp}")
         st.button("Acessar Frota", use_container_width=True, on_click=change_tab_state, args=("Motos",))
-    with c2:
-        st.info(f"👤 **Locatários**\n\nClientes Ativos: {locat_ativos}\n\nㅤ")
+        
+    with rc2:
+        st.info(f"👤 **Locatários (Pilotos)**\n\nClientes Ativos: {locat_ativos}\n\nCobranças Visiun pendentes: {visiun_count}")
         st.button("Acessar Pilotos", use_container_width=True, on_click=change_tab_state, args=("Locatários",))
-    with c3:
-        st.info(f"📈 **Receitas**\n\nA Receber no Mês:\nR$ {format_currency(rec_mes_pend)}")
-        # Receitas is tracked inside the ASAAS or Dashboard currently, but let's point to Dashboard for now or if they have a Receitas tab.
-        # Actually there is no dedicated "Receitas" tab in the main sidebar. It's just a section. We'll leave it as Dashboard or Asaas.
-        st.button("Acessar Receitas", use_container_width=True, on_click=change_tab_state, args=("Dashboard",))
-    with c4:
-        st.info(f"📉 **Despesas**\n\nVence Hoje: R$ {format_currency(desp_hoje)}\nA Pagar no Mês: R$ {format_currency(desp_mes)}")
+        
+    with rc3:
+        resultado_liquido = rec_mes_pend - desp_mes
+        if resultado_liquido >= 0:
+            res_str = f"R$ {format_currency(resultado_liquido)}"
+            color = "normal"
+        else:
+            res_str = f"-R$ {format_currency(abs(resultado_liquido))}"
+            color = "error"
+            
+        st.info(f"💰 **Balanço Mês - A Vencer**\n\nReceitas: R$ {format_currency(rec_mes_pend)}\nDespesas: R$ {format_currency(desp_mes)}\n\n**Líquido Estimado**: {res_str}")
         st.button("Acessar Despesas", use_container_width=True, on_click=change_tab_state, args=("Despesas",))
 
     st.write("")
-    bc1, bc2 = st.columns(2)
-    with bc1:
-        st.success(f"🏦 **Banco Inter**\n\nSaldo Online: R$ {format_currency(saldo_inter)}")
-        st.button("Ver Extrato Oficial", on_click=change_tab_state, args=("Inter",))
-    with bc2:
-        st.warning(f"💳 **Visiun**\n\nCobranças Pendentes: {visiun_count} (R$ {format_currency(visiun_pend)})")
-        st.button("Acessar Visiun", on_click=change_tab_state, args=("Locatários",), key="btn_dash_visiun")
-
-    st.write("")
-    dbc1, dbc2 = st.columns(2)
-    with dbc1:
-        st.info(f"🏦 **Asaas**\n\nSaldo: R$ {format_currency(saldo_asaas)}\n{asaas_pagos} Pagos | {asaas_vencidos} Vencidos")
-        st.button("Acessar Asaas", on_click=change_tab_state, args=("ASAAS",), key="btn_dash_asaas")
-    with dbc2:
-        st.info(f"👥 **Locatários (Visiun)**\n\nTotal na Carteira: {asaas_count_cust}\n\nㅤ")
-        st.button("Ver Locatários", on_click=change_tab_state, args=("Locatários",), key="btn_dash_cust_asaas")
-
-    st.markdown("---")
     
-    all_txs = db.get_transactions()
-    
+    # 4. Calendário/Evolução
+    st.markdown("### 🗓️ 4. Evolução (Receitas vs Despesas)")
     if not all_txs:
         st.info("Nenhuma transação financeira registrada para gráficos adicionais.")
         return
