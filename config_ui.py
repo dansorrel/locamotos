@@ -1042,130 +1042,128 @@ def despesas_tab():
     )
 
 def config_ui_tab():
+    import os
     st.header("Configurações")
     
-    tab_sistema, tab_usuarios = st.tabs(["Sistema (APIs e E-mail)", "Gestão de Usuários"])
+    st.write("Estas chaves ficam salvas apenas localmente na sua máquina em um arquivo `.env`.")
+    env_vars = load_env_vars()
+
+    # SMTP Config
+    st.subheader("Configurações de E-mail (SMTP)")
+    has_smtp = "✅ Configurado" if "SMTP_SERVER" in env_vars else "❌ Pendente"
+    st.write(f"Status Atual: **{has_smtp}**")
     
-    with tab_sistema:
-        st.write("Estas chaves ficam salvas apenas localmente na sua máquina em um arquivo `.env`.")
-        env_vars = load_env_vars()
-
-        # SMTP Config
-        st.subheader("Configurações de E-mail (SMTP)")
-        has_smtp = "✅ Configurado" if "SMTP_SERVER" in env_vars else "❌ Pendente"
-        st.write(f"Status Atual: **{has_smtp}**")
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        smtp_server = st.text_input("Servidor SMTP", value=env_vars.get("SMTP_SERVER", "smtp.gmail.com"))
+        smtp_port = st.text_input("Porta SMTP", value=env_vars.get("SMTP_PORT", "587"))
+    with col_s2:
+        smtp_user = st.text_input("Usuário SMTP (E-mail)", value=env_vars.get("SMTP_USER", ""))
+        smtp_pass = st.text_input("Senha SMTP", type="password", value=env_vars.get("SMTP_PASSWORD", ""))
         
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            smtp_server = st.text_input("Servidor SMTP", value=env_vars.get("SMTP_SERVER", "smtp.gmail.com"))
-            smtp_port = st.text_input("Porta SMTP", value=env_vars.get("SMTP_PORT", "587"))
-        with col_s2:
-            smtp_user = st.text_input("Usuário SMTP (E-mail)", value=env_vars.get("SMTP_USER", ""))
-            smtp_pass = st.text_input("Senha SMTP", type="password", value=env_vars.get("SMTP_PASSWORD", ""))
+    if st.button("Salvar Servidor de E-mail"):
+        if smtp_server and smtp_port and smtp_user and smtp_pass:
+            save_env_var("SMTP_SERVER", smtp_server)
+            save_env_var("SMTP_PORT", smtp_port)
+            save_env_var("SMTP_USER", smtp_user)
+            save_env_var("SMTP_PASSWORD", smtp_pass)
+            st.success("Configurações SMTP salvas com sucesso em `.env`!")
+            st.rerun()
+        else:
+            st.error("Preencha todos os campos do SMTP.")
+
+    # Contador Config
+    st.markdown("---")
+    st.subheader("Contador")
+    contador_email = st.text_input("Email do Contador", value=env_vars.get("EMAIL_CONTADOR", ""))
+    if st.button("Salvar Email do Contador"):
+        if contador_email:
+            save_env_var("EMAIL_CONTADOR", contador_email)
+            st.success("Email salvo com sucesso em `.env`!")
+
+    # ASAAS config
+    st.markdown("---")
+    st.subheader("ASAAS")
+    has_asaas = "✅ Configurado" if "ASAAS_API_KEY" in env_vars else "❌ Pendente"
+    st.write(f"Status Atual: **{has_asaas}**")
+    asaas_key = st.text_input("Chave de API ASAAS", type="password", value=env_vars.get("ASAAS_API_KEY", ""))
+    if st.button("Salvar ASAAS", key="btn_asaas"):
+        if asaas_key:
+            save_env_var("ASAAS_API_KEY", asaas_key)
+            st.success("Chave ASAAS salva com sucesso!")
+            st.rerun()
+
+    # Visiun config
+    st.markdown("---")
+    st.subheader("Visiun")
+    has_visiun = "✅ Configurado" if "VISIUN_API_KEY" in env_vars else "❌ Pendente"
+    st.write(f"Status Atual: **{has_visiun}**")
+    visiun_key = st.text_input("Chave de API Visiun", type="password", value=env_vars.get("VISIUN_API_KEY", ""))
+    if st.button("Salvar Visiun", key="btn_visiun"):
+        if visiun_key:
+            save_env_var("VISIUN_API_KEY", visiun_key)
+            st.success("Chave Visiun salva com sucesso!")
+            st.rerun()
+
+
+    # Banco Inter API Config
+    st.markdown("---")
+    st.subheader("Banco Inter (API & Certificado)")
+    has_inter_api = "✅ Configurado" if "INTER_CLIENT_ID" in env_vars else "❌ Pendente"
+    has_inter_cert = "✅ Configurado" if "INTER_CERT" in env_vars else "❌ Pendente"
+    st.write(f"Status API: **{has_inter_api}** | Status Certificado: **{has_inter_cert}**")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        inter_client_id = st.text_input("Client ID", value=env_vars.get("INTER_CLIENT_ID", ""))
+    with col2:
+        inter_client_secret = st.text_input("Client Secret", type="password", value=env_vars.get("INTER_CLIENT_SECRET", ""))
+        
+    if st.button("Salvar Credenciais da API (Inter)"):
+        if inter_client_id and inter_client_secret:
+            save_env_var("INTER_CLIENT_ID", inter_client_id)
+            save_env_var("INTER_CLIENT_SECRET", inter_client_secret)
+            st.success("Credenciais do Banco Inter salvas com sucesso!")
+            st.rerun()
+
+    # Reordered section: Certificates right below API
+    st.write("### Certificados (mTLS)")
+    os.makedirs(CERTS_DIR, exist_ok=True)
+    uploaded_crt = st.file_uploader("Upload Novo Certificado (.crt)", type=["crt"], key="up_crt")
+    uploaded_key = st.file_uploader("Upload Nova Chave Privada (.key)", type=["key"], key="up_key")
+
+    if st.button("Salvar Arquivos de Certificado", key="btn_inter_certs"):
+        if uploaded_crt and uploaded_key:
+            crt_path = os.path.join(CERTS_DIR, uploaded_crt.name)
+            key_path = os.path.join(CERTS_DIR, uploaded_key.name)
             
-        if st.button("Salvar Servidor de E-mail"):
-            if smtp_server and smtp_port and smtp_user and smtp_pass:
-                save_env_var("SMTP_SERVER", smtp_server)
-                save_env_var("SMTP_PORT", smtp_port)
-                save_env_var("SMTP_USER", smtp_user)
-                save_env_var("SMTP_PASSWORD", smtp_pass)
-                st.success("Configurações SMTP salvas com sucesso em `.env`!")
-                st.rerun()
-            else:
-                st.error("Preencha todos os campos do SMTP.")
-
-        # Contador Config
-        st.markdown("---")
-        st.subheader("Contador")
-        contador_email = st.text_input("Email do Contador", value=env_vars.get("EMAIL_CONTADOR", ""))
-        if st.button("Salvar Email do Contador"):
-            if contador_email:
-                save_env_var("EMAIL_CONTADOR", contador_email)
-                st.success("Email salvo com sucesso em `.env`!")
-
-        # ASAAS config
-        st.markdown("---")
-        st.subheader("ASAAS")
-        has_asaas = "✅ Configurado" if "ASAAS_API_KEY" in env_vars else "❌ Pendente"
-        st.write(f"Status Atual: **{has_asaas}**")
-        asaas_key = st.text_input("Chave de API ASAAS", type="password", value=env_vars.get("ASAAS_API_KEY", ""))
-        if st.button("Salvar ASAAS", key="btn_asaas"):
-            if asaas_key:
-                save_env_var("ASAAS_API_KEY", asaas_key)
-                st.success("Chave ASAAS salva com sucesso!")
-                st.rerun()
-
-        # Visiun config
-        st.markdown("---")
-        st.subheader("Visiun")
-        has_visiun = "✅ Configurado" if "VISIUN_API_KEY" in env_vars else "❌ Pendente"
-        st.write(f"Status Atual: **{has_visiun}**")
-        visiun_key = st.text_input("Chave de API Visiun", type="password", value=env_vars.get("VISIUN_API_KEY", ""))
-        if st.button("Salvar Visiun", key="btn_visiun"):
-            if visiun_key:
-                save_env_var("VISIUN_API_KEY", visiun_key)
-                st.success("Chave Visiun salva com sucesso!")
-                st.rerun()
-
-
-        # Banco Inter API Config
-        st.markdown("---")
-        st.subheader("Banco Inter (API & Certificado)")
-        has_inter_api = "✅ Configurado" if "INTER_CLIENT_ID" in env_vars else "❌ Pendente"
-        has_inter_cert = "✅ Configurado" if "INTER_CERT" in env_vars else "❌ Pendente"
-        st.write(f"Status API: **{has_inter_api}** | Status Certificado: **{has_inter_cert}**")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            inter_client_id = st.text_input("Client ID", value=env_vars.get("INTER_CLIENT_ID", ""))
-        with col2:
-            inter_client_secret = st.text_input("Client Secret", type="password", value=env_vars.get("INTER_CLIENT_SECRET", ""))
+            with open(crt_path, "wb") as f_crt:
+                f_crt.write(uploaded_crt.getbuffer())
+            with open(key_path, "wb") as f_key:
+                f_key.write(uploaded_key.getbuffer())
             
-        if st.button("Salvar Credenciais da API (Inter)"):
-            if inter_client_id and inter_client_secret:
-                save_env_var("INTER_CLIENT_ID", inter_client_id)
-                save_env_var("INTER_CLIENT_SECRET", inter_client_secret)
-                st.success("Credenciais do Banco Inter salvas com sucesso!")
-                st.rerun()
+            save_env_var("INTER_CERT", crt_path)
+            save_env_var("INTER_KEY", key_path)
+            st.success(f"Certificados salvos com sucesso!")
+            st.rerun()
+        else:
+            st.error("Envie ambos os arquivos (.crt e .key)")
 
-        # Reordered section: Certificates right below API
-        st.write("### Certificados (mTLS)")
-        os.makedirs(CERTS_DIR, exist_ok=True)
-        uploaded_crt = st.file_uploader("Upload Novo Certificado (.crt)", type=["crt"], key="up_crt")
-        uploaded_key = st.file_uploader("Upload Nova Chave Privada (.key)", type=["key"], key="up_key")
-
-        if st.button("Salvar Arquivos de Certificado", key="btn_inter_certs"):
-            if uploaded_crt and uploaded_key:
-                crt_path = os.path.join(CERTS_DIR, uploaded_crt.name)
-                key_path = os.path.join(CERTS_DIR, uploaded_key.name)
-                
-                with open(crt_path, "wb") as f_crt:
-                    f_crt.write(uploaded_crt.getbuffer())
-                with open(key_path, "wb") as f_key:
-                    f_key.write(uploaded_key.getbuffer())
-                
-                save_env_var("INTER_CERT", crt_path)
-                save_env_var("INTER_KEY", key_path)
-                st.success(f"Certificados salvos com sucesso!")
-                st.rerun()
-            else:
-                st.error("Envie ambos os arquivos (.crt e .key)")
-
-        # Inter Pix Key Config
-        st.markdown("---")
-        st.subheader("Chave Pix de Destino (Para Varredura Asaas)")
-        has_pix = "✅ Configurado" if "INTER_PIX_KEY" in env_vars else "❌ Pendente"
-        st.write(f"Status da Chave: **{has_pix}**")
-        
-        col_pk1, col_pk2 = st.columns(2)
-        with col_pk1:
-            pix_key = st.text_input("Sua Chave Pix (Banco Inter)", value=env_vars.get("INTER_PIX_KEY", ""))
-        with col_pk2:
-            pix_type = st.selectbox("Tipo da Chave", ["CPF", "CNPJ", "EMAIL", "PHONE", "EVP"], 
-                                   index=["CPF", "CNPJ", "EMAIL", "PHONE", "EVP"].index(env_vars.get("INTER_PIX_KEY_TYPE", "CNPJ")) if "INTER_PIX_KEY_TYPE" in env_vars else 1)
-                                   
-        if st.button("Salvar Chave Pix de Recebimento"):
-            if pix_key and pix_type:
+    # Inter Pix Key Config
+    st.markdown("---")
+    st.subheader("Chave Pix de Destino (Para Varredura Asaas)")
+    has_pix = "✅ Configurado" if "INTER_PIX_KEY" in env_vars else "❌ Pendente"
+    st.write(f"Status da Chave: **{has_pix}**")
+    
+    col_pk1, col_pk2 = st.columns(2)
+    with col_pk1:
+        pix_key = st.text_input("Sua Chave Pix (Banco Inter)", value=env_vars.get("INTER_PIX_KEY", ""))
+    with col_pk2:
+        pix_type = st.selectbox("Tipo da Chave", ["CPF", "CNPJ", "EMAIL", "PHONE", "EVP"], 
+                               index=["CPF", "CNPJ", "EMAIL", "PHONE", "EVP"].index(env_vars.get("INTER_PIX_KEY_TYPE", "CNPJ")) if "INTER_PIX_KEY_TYPE" in env_vars else 1)
+                               
+    if st.button("Salvar Chave Pix de Recebimento"):
+        if pix_key and pix_type:
                 save_env_var("INTER_PIX_KEY", pix_key)
                 save_env_var("INTER_PIX_KEY_TYPE", pix_type)
                 st.success("Chave Pix salva com sucesso!")
@@ -1487,16 +1485,18 @@ def main():
         st.sidebar.write(f"Olá, **{st.session_state.user_name}**")
         
         # Determine accessible tabs
-        # GRANT ALL PERMISSIONS TO ALL USERS
         available_tabs = [
             "Dashboard",
             "ASAAS",
             "Inter",
             "Motos",
             "Locatários",
-            "Despesas",
-            "Configurações"
+            "Despesas"
         ]
+        
+        # Restrict Configurações only to dansorrel (Daniel Sorrentino)
+        if st.session_state.user_name == "Daniel Sorrentino" or st.session_state.user_id == 1:
+            available_tabs.append("Configurações")
         
         # DEV OVERRIDE REMOVED
         
