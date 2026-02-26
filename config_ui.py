@@ -55,6 +55,19 @@ def init_session_state():
     if "user_permissions" not in st.session_state:
         st.session_state.user_permissions = ""
 
+    if "cookie_sync_attempts" not in st.session_state:
+        st.session_state.cookie_sync_attempts = 0
+
+    # Synchronize cookies
+    if "cookies_synced" not in st.session_state:
+        # Give the Streamlit component a moment to mount in the browser
+        cookies = cookie_manager.get_all()
+        # extra-streamlit-components returns an empty dict initially
+        if len(cookies.keys()) == 0 and st.session_state.cookie_sync_attempts < 2:
+            st.session_state.cookie_sync_attempts += 1
+            return False # Not yet synced
+        st.session_state.cookies_synced = True
+
     # Check for remember me cookie
     if not st.session_state.logged_in:
         cookies = cookie_manager.get_all()
@@ -70,6 +83,7 @@ def init_session_state():
                     st.session_state.user_name = nome
                     st.session_state.user_role = papel
                     st.session_state.user_permissions = permissoes
+    return True
 
 def do_login(username_login, password, lembrar_user):
     db = DatabaseManager()
@@ -1365,7 +1379,75 @@ def auto_send_accountant_export():
 
 def main():
     st.set_page_config(page_title="Locamotos", page_icon="🏍️", layout="wide")
-    init_session_state()
+    
+    # --- Squarespace CSS Theme ---
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+        color: #111111;
+    }
+    .stApp {
+        background-color: #FAFAFA;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        font-weight: 600 !important;
+        letter-spacing: -0.02em;
+        color: #111111 !important;
+    }
+    /* Modern rounded buttons */
+    .stButton > button {
+        background-color: #111111 !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.6rem 1.2rem !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+    }
+    .stButton > button:hover {
+        background-color: #333333 !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
+    }
+    /* Subdued metric boxes / Info boxes */
+    [data-testid="stMetricValue"] {
+        font-weight: 600;
+        color: #111111 !important;
+    }
+    .stAlert {
+        border-radius: 8px !important;
+        border: 1px solid #EBEBEB !important;
+        background-color: #FFFFFF !important;
+        color: #111111 !important;
+    }
+    /* Dataframe styling */
+    [data-testid="stDataFrame"] {
+        border-radius: 8px;
+        background-color: #FFFFFF;
+    }
+    /* Header hiding (optional, makes it cleaner) */
+    header[data-testid="stHeader"] {
+        background-color: transparent !important;
+    }
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #FFFFFF;
+        border-right: 1px solid #EBEBEB;
+    }
+    /* Inputs */
+    .stTextInput input, .stSelectbox > div > div {
+        border-radius: 6px !important;
+        border: 1px solid #EBEBEB !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    if not init_session_state():
+        st.markdown("<div style='text-align: center; margin-top: 20%;'>Carregando sessão de segurança...</div>", unsafe_allow_html=True)
+        st.stop()
     
     
     if not st.session_state.logged_in:
