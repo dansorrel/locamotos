@@ -31,7 +31,7 @@ def migrate_data():
     count_trans = 0
     for t in transacoes:
         origem = str(t[0]).upper()
-        if origem not in ['ASAAS', 'VELO', 'ASAAS_LUCRO', 'OUTROS']:
+        if origem not in ['ASAAS', 'VISIUN', 'ASAAS_LUCRO', 'OUTROS']:
             origem = 'OUTROS'
             
         placa = t[5]

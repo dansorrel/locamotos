@@ -11,7 +11,7 @@ def locatarios_tab():
     
     col_t1, col_t2 = st.columns([2, 2])
     with col_t1:
-        st.subheader("🏁 Listagem Unificada (Velo + Asaas)")
+        st.subheader("🏁 Listagem Unificada (Visiun + Asaas)")
     with col_t2:
         if st.button("🔄 Sincronizar Pilotos com ASAAS", use_container_width=True, type="primary"):
             try:
@@ -94,6 +94,14 @@ def locatarios_tab():
                              cf_name = new_cnh_file.name if new_cnh_file else None
                              cf_type = new_cnh_file.type if new_cnh_file else None
                              
+                             if d_placa and d_placa != placa_final:
+                                 # Free the old moto
+                                 db.sync_moto_association(d_placa, None)
+
+                             if placa_final:
+                                 # Bind the new moto
+                                 db.sync_moto_association(placa_final, new_nome)
+
                              success = db.update_locatario(
                                  d_id, new_nome, new_cpf, new_endereco, new_telefone, new_email, new_cnh, placa_final,
                                  cf_bytes, cf_name, cf_type
@@ -105,6 +113,10 @@ def locatarios_tab():
                                  st.error("Erro ao atualizar dados.")
                          
                          if delete_btn:
+                             # Before deleting, clear the moto association using sync method
+                             if d_placa:
+                                 db.sync_moto_association(d_placa, None)
+
                              if db.delete_locatario(d_id):
                                  st.success("Piloto excluído com sucesso!")
                                  st.rerun()
@@ -114,7 +126,7 @@ def locatarios_tab():
     st.markdown('---')
     # Form to Add Locatário
     with st.expander("👤 Gerenciar Pilotos", expanded=True):
-        st.info("Aqui você gerencia os pilotos vinculados à Velo e sincroniza com os dados de cobrança do Asaas.")
+        st.info("Aqui você gerencia os pilotos vinculados à Visiun e sincroniza com os dados de cobrança do Asaas.")
         with st.form("form_add_locatario", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:

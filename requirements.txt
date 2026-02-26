@@ -6,3 +6,4 @@ requests
 cryptography
 Pillow
 Werkzeug
+extra-streamlit-components

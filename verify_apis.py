@@ -1,11 +1,11 @@
 import os
 from asaas_client import AsaasClient
-from velo_client import VeloClient
+from visiun_client import VisiunClient
 from inter_client import InterClient
 
 # Mock environment variables for testing 
 os.environ["ASAAS_API_KEY"] = "mock_asaas_key"
-os.environ["VELO_API_KEY"] = "mock_velo_key"
+os.environ["VISIUN_API_KEY"] = "mock_visiun_key"
 os.environ["INTER_CERT"] = "mock_cert.crt"
 os.environ["INTER_KEY"] = "mock_key.key"
 os.environ["INTER_CLIENT_ID"] = "mock_client_id"
@@ -27,12 +27,12 @@ def run_tests():
         print(f"❌ AsaasClient failed: {e}")
 
     try:
-        velo = VeloClient()
-        velo._check_config()
-        print("✅ VeloClient loaded mock key successfully.")
-        print(f"   Headers prepared: {velo.headers}")
+        visiun = VisiunClient()
+        visiun._check_config()
+        print("✅ VisiunClient loaded mock key successfully.")
+        print(f"   Headers prepared: {visiun.headers}")
     except Exception as e:
-        print(f"⚠️ VeloClient (Optional) not configured or failed: {e}")
+        print(f"⚠️ VisiunClient (Optional) not configured or failed: {e}")
 
     try:
         inter = InterClient()

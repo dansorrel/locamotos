@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-class VeloClient:
+class VisiunClient:
     def __init__(self):
-        self.api_key = os.getenv("VELO_API_KEY")
-        # Using a placeholder URL until proper Velo API documentation is provided
-        self.base_url = "https://api.velo.com.br/v1" 
+        self.api_key = os.getenv("VISIUN_API_KEY")
+        # Using a placeholder URL until proper Visiun API documentation is provided
+        self.base_url = "https://api.visiun.com.br/v1" 
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -16,7 +16,7 @@ class VeloClient:
 
     def _check_config(self):
         if not self.api_key:
-            raise ValueError("VELO_API_KEY is not defined in the .env file.")
+            raise ValueError("VISIUN_API_KEY is not defined in the .env file.")
 
     def get_expenses(self, date_from, date_to):
         """
@@ -25,7 +25,7 @@ class VeloClient:
         """
         self._check_config()
         
-        # Placeholder endpoint - adjust based on actual Velo API docs
+        # Placeholder endpoint - adjust based on actual Visiun API docs
         url = f"{self.base_url}/expenses" 
         
         params = {
@@ -38,7 +38,7 @@ class VeloClient:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError as e:
-            print(f"Failed to fetch expenses from Velo: {e}")
+            print(f"Failed to fetch expenses from Visiun: {e}")
             # If it's a 404 because the placeholder URL is wrong, just return empty list for now
             if response.status_code == 404:
                 return []

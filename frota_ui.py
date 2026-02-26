@@ -20,116 +20,122 @@ def frota_tab():
     motos_list = db.get_motos_list()
     if not motos_list:
         st.info("Nenhuma moto cadastrada.")
-        return
-        
-    for m in motos_list:
-        p_placa, p_modelo, p_disp, p_loc, p_valor, p_odometro = m
-        with st.expander(f"🏍️ {p_placa} - {p_modelo} ({p_disp})"):
-            details = db.get_moto_details(p_placa)
-            if details:
-                 (d_placa, d_modelo, d_data, d_valor, d_despesas, d_manut, d_rev, d_oleo, d_disp, d_loc, 
-                  d_docn, d_doct, d_ipvan, d_ipvat, d_crlvn, d_crlvt, d_odometro) = details
-                 
-                 # Criação das Abas
-                 aba_dados, aba_manutencao, aba_oleo, aba_valores = st.tabs([
-                     "📝 Dados da Moto", 
-                     "🔧 Manutenção & Revisão", 
-                     "🛢️ Troca de Óleo", 
-                     "💰 Valores & Depreciação"
-                 ])
-                 
-                 with aba_dados:
-                     c1, c2 = st.columns(2)
-                     c1.markdown(f"**Placa:** {d_placa}")
-                     c1.markdown(f"**Modelo:** {d_modelo}")
-                     c1.markdown(f"**Status:** {d_disp}")
-                     c2.markdown(f"**Locatário Atual:** {d_loc or 'Nenhum'}")
-                     c2.markdown(f"**Data da Compra:** {d_data}")
+    else:
+        for m in motos_list:
+            p_placa, p_modelo, p_disp, p_loc, p_valor, p_odometro = m
+            with st.expander(f"🏍️ {p_placa} - {p_modelo} ({p_disp})"):
+                details = db.get_moto_details(p_placa)
+                if details:
+                     (d_placa, d_modelo, d_data, d_valor, d_despesas, d_manut, d_rev, d_oleo, d_disp, d_loc, 
+                      d_docn, d_doct, d_ipvan, d_ipvat, d_crlvn, d_crlvt, d_odometro) = details
                      
-                     st.write("---")
-                     with st.form(f"form_update_odometro_{d_placa}"):
-                         # Default value is current odometer, user can update it manually
-                         # Eventually, it will come from Velo API
-                         new_odo = st.number_input("Odômetro / KM (Atualizar Manualmente)", min_value=0.0, value=float(d_odometro or 0.0), step=100.0)
-                         btn_odo = st.form_submit_button("Salvar KM")
-                         if btn_odo:
-                             # We only update the odometer. A dedicated helper is best, but since we didn't add it to db manager
-                             # cleanly, we can use the full update_moto but we don't want to overwrite files.
-                             # Let's just use the direct query:
-                             conn = db.get_connection()
-                             try:
-                                 with conn.cursor() as cursor:
-                                     cursor.execute("UPDATE motos SET odometro = %s WHERE placa = %s", (new_odo, d_placa))
-                                 conn.commit()
-                             finally:
-                                 conn.close()
-                             st.success(f"KM da moto {d_placa} atualizado para {new_odo}!")
-                             st.rerun()
+                     # Criação das Abas
+                     aba_dados, aba_manutencao, aba_oleo, aba_valores = st.tabs([
+                         "📝 Dados da Moto", 
+                         "🔧 Manutenção & Revisão", 
+                         "🛢️ Troca de Óleo", 
+                         "💰 Valores & Depreciação"
+                     ])
                      
-                     st.write("### Arquivos")
-                     fc1, fc2, fc3 = st.columns(3)
-                     
-                     def render_file_btn(col, title, prefix, file_name, file_type):
-                         if file_name:
-                             col.write(f"**{title}**: {file_name}")
-                             if col.button(f"Visualizar {title}", key=f"view_{prefix}_{d_placa}"):
-                                 file_data = db.get_moto_file(d_placa, prefix)
-                                 raw_bytes = file_data[0]
-                                 b64 = base64.b64encode(raw_bytes).decode()
-                                 if 'pdf' in file_type:
-                                     href = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="600" type="application/pdf"></iframe>'
-                                     st.markdown(href, unsafe_allow_html=True)
-                                 else:
-                                     href = f'<img src="data:{file_type};base64,{b64}" width="100%" />'
-                                     st.markdown(href, unsafe_allow_html=True)
-                         else:
-                             col.write(f"**{title}**: Não anexado")
-
-                     render_file_btn(fc1, "Documento", "doc", d_docn, d_doct)
-                     render_file_btn(fc2, "IPVA", "ipva", d_ipvan, d_ipvat)
-                     render_file_btn(fc3, "CRLV", "crlv", d_crlvn, d_crlvt)
-                 
-                 with aba_manutencao:
-                     mcol1, mcol2 = st.columns(2)
-                     with mcol1:
-                         st.markdown("**Anotações de Manutenção:**")
-                         st.info(d_manut if d_manut else "Nenhuma anotação")
-                     with mcol2:
-                         st.markdown("**Datas de Revisão:**")
-                         st.warning(d_rev if d_rev else "Nenhuma anotação")
-                 
-                 with aba_oleo:
-                     st.markdown("**Histórico - Troca de Óleo:**")
-                     st.info(d_oleo if d_oleo else "Nenhuma anotação de troca de óleo cadastrada.")
-                     
-                 with aba_valores:
-                     vcol1, vcol2 = st.columns(2)
-                     
-                     # Matemática de Depreciação: Estipulando perda de mercado de 1% do valor da moto por mês de uso.
-                     valor_orig = float(d_valor or 0)
-                     data_compra = pd.to_datetime(d_data)
-                     hoje = pd.to_datetime(datetime.date.today())
-                     
-                     dias_uso = (hoje - data_compra).days if pd.notnull(data_compra) else 0
-                     meses_uso = max(0, dias_uso // 30)
-                     
-                     # Depreciação de 1% ao mês
-                     taxa_depreciacao = min(0.99, (meses_uso * 0.01)) # Limite máx de perda de 99% pra não ficar negativo
-                     valor_depreciado = valor_orig - (valor_orig * taxa_depreciacao)
-                     
-                     # Usar odômetro real (d_odometro)
-                     km_display = float(d_odometro or 0.0)
-                     km_label = "KM Registrado (Odômetro)"
-                     
-                     with vcol1:
-                         st.markdown("### Valores da Moto")
-                         st.markdown(f"**Valor de Compra (Original):** {format_currency(valor_orig)}")
-                         st.markdown(f"**Despesas Vinculadas:**\n{d_despesas if d_despesas else 'Nenhuma'}")
+                     with aba_dados:
+                         c1, c2 = st.columns(2)
+                         c1.markdown(f"**Placa:** {d_placa}")
+                         c1.markdown(f"**Modelo:** {d_modelo}")
+                         c1.markdown(f"**Status:** {d_disp}")
                          
-                     with vcol2:
-                         st.markdown("### Depreciação Estimada")
-                         st.metric(km_label, f"{km_display:,.0f} km".replace(",", "."))
-                         st.metric("Valor Atual de Mercado", format_currency(valor_depreciado), delta=f"-{taxa_depreciacao*100:.0f}% Comercial", delta_color="inverse")
+                         st.write("---")
+                         st.markdown("##### 🤝 Atribuição de Locatário")
+                         locatarios = db.get_locatarios_list() 
+                         lista_nomes = ["Nenhum"] + [loc[1] for loc in locatarios]
+                         
+                         try:
+                             idx_loc = lista_nomes.index(d_loc) if d_loc in lista_nomes else 0
+                         except:
+                             idx_loc = 0
+                             
+                         with st.form(f"atribuir_loc_{d_placa}"):
+                             novo_loc = st.selectbox("Selecionar Locatário", options=lista_nomes, index=idx_loc)
+                             save_atrib = st.form_submit_button("Salvar Atribuição")
+                             
+                             if save_atrib:
+                                 loc_nome = None if novo_loc == "Nenhum" else novo_loc
+                                 if db.sync_moto_association(d_placa, loc_nome):
+                                     st.success(f"Moto {d_placa} vinculada a {novo_loc}!")
+                                     st.rerun()
+                                 else:
+                                     st.error("Erro ao vincular.")
+
+                         c2.markdown(f"**Locatário Atual:** {d_loc or 'Nenhum'}")
+                         c2.markdown(f"**Data da Compra:** {d_data}")
+                         
+                         st.write("---")
+                         with st.form(f"form_update_odometro_{d_placa}"):
+                             new_odo = st.number_input("Odômetro / KM (Atualizar Manualmente)", min_value=0.0, value=float(d_odometro or 0.0), step=100.0)
+                             btn_odo = st.form_submit_button("Salvar KM")
+                             if btn_odo:
+                                 if db.update_moto_odometer(d_placa, new_odo):
+                                     st.success(f"KM da moto {d_placa} atualizado para {new_odo}!")
+                                     st.rerun()
+                                 else:
+                                     st.error("Erro ao atualizar quilometragem.")
+                         
+                         st.write("### Arquivos")
+                         fc1, fc2, fc3 = st.columns(3)
+                         
+                         def render_file_btn(col, title, prefix, file_name, file_type):
+                             if file_name:
+                                 col.write(f"**{title}**: {file_name}")
+                                 if col.button(f"Visualizar {title}", key=f"view_{prefix}_{d_placa}"):
+                                     file_data = db.get_moto_file(d_placa, prefix)
+                                     raw_bytes = file_data[0]
+                                     b64 = base64.b64encode(raw_bytes).decode()
+                                     if 'pdf' in file_type:
+                                         href = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="600" type="application/pdf"></iframe>'
+                                         st.markdown(href, unsafe_allow_html=True)
+                                     else:
+                                         href = f'<img src="data:{file_type};base64,{b64}" width="100%" />'
+                                         st.markdown(href, unsafe_allow_html=True)
+                             else:
+                                 col.write(f"**{title}**: Não anexado")
+
+                         render_file_btn(fc1, "Documento", "doc", d_docn, d_doct)
+                         render_file_btn(fc2, "IPVA", "ipva", d_ipvan, d_ipvat)
+                         render_file_btn(fc3, "CRLV", "crlv", d_crlvn, d_crlvt)
+                     
+                     with aba_manutencao:
+                         mcol1, mcol2 = st.columns(2)
+                         with mcol1:
+                             st.markdown("**Anotações de Manutenção:**")
+                             st.info(d_manut if d_manut else "Nenhuma anotação")
+                         with mcol2:
+                             st.markdown("**Datas de Revisão:**")
+                             st.warning(d_rev if d_rev else "Nenhuma anotação")
+                     
+                     with aba_oleo:
+                         st.markdown("**Histórico - Troca de Óleo:**")
+                         st.info(d_oleo if d_oleo else "Nenhuma anotação de troca de óleo cadastrada.")
+                         
+                     with aba_valores:
+                         vcol1, vcol2 = st.columns(2)
+                         valor_orig = float(d_valor or 0)
+                         data_compra = pd.to_datetime(d_data)
+                         hoje = pd.to_datetime(datetime.date.today())
+                         dias_uso = (hoje - data_compra).days if pd.notnull(data_compra) else 0
+                         meses_uso = max(0, dias_uso // 30)
+                         taxa_depreciacao = min(0.99, (meses_uso * 0.01)) 
+                         valor_depreciado = valor_orig - (valor_orig * taxa_depreciacao)
+                         km_display = float(d_odometro or 0.0)
+                         km_label = "KM Registrado (Odômetro)"
+                         
+                         with vcol1:
+                             st.markdown("### Valores da Moto")
+                             st.markdown(f"**Valor de Compra (Original):** {format_currency(valor_orig)}")
+                             st.markdown(f"**Despesas Vinculadas:**\n{d_despesas if d_despesas else 'Nenhuma'}")
+                             
+                         with vcol2:
+                             st.markdown("### Depreciação Estimada")
+                             st.metric(km_label, f"{km_display:,.0f} km".replace(",", "."))
+                             st.metric("Valor após Depreciação", format_currency(valor_depreciado), delta=f"-{taxa_depreciacao*100:.0f}% Comercial", delta_color="inverse")
 
     st.markdown('---')
     # Form to Add Moto
@@ -143,7 +149,11 @@ def frota_tab():
             with col2:
                 data_compra = st.date_input("Data da Compra")
                 valor_compra = st.number_input("Valor da Moto (R$)", min_value=0.0, format="%.2f")
-                locatario = st.text_input("Locatário Atual (Opcional)")
+                
+                locatarios_add = db.get_locatarios_list()
+                lista_add = ["Nenhum"] + [loc[1] for loc in locatarios_add]
+                locatario_sel = st.selectbox("Locatário Atual (Opcional)", options=lista_add)
+                locatario = None if locatario_sel == "Nenhum" else locatario_sel
             with col3:
                 despesas = st.text_area("Despesas Vinculadas", height=68)
                 manutencao = st.text_area("Histórico de Manutenção", height=68)
@@ -168,7 +178,6 @@ def frota_tab():
                 if not placa or not modelo:
                     st.error("Placa e Modelo são obrigatórios.")
                 else:
-                    # Read Files if uploaded
                     df_bytes = doc_file.read() if doc_file else None
                     df_name = doc_file.name if doc_file else None
                     df_type = doc_file.type if doc_file else None
@@ -190,4 +199,3 @@ def frota_tab():
                         st.rerun()
                     else:
                         st.error("Erro ao cadastrar. Verifique se a placa já existe.")
-

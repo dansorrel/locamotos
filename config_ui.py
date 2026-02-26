@@ -7,9 +7,13 @@ from auth import hash_password, verify_password, is_strong_password
 from frota_ui import frota_tab
 from locatarios_ui import locatarios_tab
 from dotenv import load_dotenv
+import extra_streamlit_components as stx
 
-DOTENV_FILE = ".env"
-CERTS_DIR = "certs"
+@st.cache_resource
+def get_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_manager()
 
 # --- Utility Functions ---
 
@@ -45,11 +49,6 @@ def format_currency(value):
 def init_session_state():
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
-        
-        # In a real environment, we'd use st.session_state or cookies
-        # Getting REMEMBERED_USER from global DB config is a security risk 
-        # as it logs everyone in as the same person.
-        # Removing global auto-login bypass.
                 
     if "user_id" not in st.session_state:
         st.session_state.user_id = None
@@ -60,6 +59,22 @@ def init_session_state():
     if "user_permissions" not in st.session_state:
         st.session_state.user_permissions = ""
 
+    # Check for remember me cookie
+    if not st.session_state.logged_in:
+        cookies = cookie_manager.get_all()
+        rem_user = cookies.get("locamotos_user")
+        if rem_user:
+            db = DatabaseManager()
+            user = db.get_user_by_username(rem_user)
+            if user:
+                user_id, nome, username_db, email_db, senha_hash, papel, status, permissoes, created_at = user
+                if status == "aprovado":
+                    st.session_state.logged_in = True
+                    st.session_state.user_id = user_id
+                    st.session_state.user_name = nome
+                    st.session_state.user_role = papel
+                    st.session_state.user_permissions = permissoes
+
 def do_login(username_login, password, lembrar_user):
     db = DatabaseManager()
     user = db.get_user_by_username(username_login)
@@ -68,7 +83,9 @@ def do_login(username_login, password, lembrar_user):
         if verify_password(senha_hash, password):
             if status == "aprovado":
                 if lembrar_user:
-                    st.toast("A funcionalidade 'Lembrar de mim' foi desativada temporariamente por segurança.")
+                    # Expire in 5 days
+                    exp_date = datetime.datetime.now() + datetime.timedelta(days=5)
+                    cookie_manager.set("locamotos_user", username_db, expires_at=exp_date)
                     
                 st.session_state.logged_in = True
                 st.session_state.user_id = user_id
@@ -86,6 +103,7 @@ def do_login(username_login, password, lembrar_user):
         st.error("Usuário não encontrado.")
 
 def do_logout():
+    cookie_manager.delete("locamotos_user")
     st.session_state.logged_in = False
     st.session_state.user_id = None
     st.session_state.user_name = None
@@ -183,8 +201,8 @@ def dashboard_tab():
     rec_mes_pend = 0.0
     desp_hoje = 0.0
     desp_mes = 0.0
-    velo_pend = 0.0
-    velo_count = 0
+    visiun_pend = 0.0
+    visiun_count = 0
     
     if all_txs:
         df_live = pd.DataFrame(all_txs, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
@@ -199,22 +217,24 @@ def dashboard_tab():
         desp_hoje = df_live[mask_desp_pend & (df_live["Data"].dt.date == hoje)]["Valor"].sum()
         desp_mes = df_live[mask_desp_pend & (df_live["Data"].dt.month == hoje.month) & (df_live["Data"].dt.year == hoje.year)]["Valor"].sum()
         
-        # Velo
-        velo_df = df_live[(df_live["Origem"] == "VELO") & (df_live["Status"] == "pendente")]
-        velo_pend = velo_df["Valor"].sum()
-        velo_count = len(velo_df)
+        # Visiun
+        visiun_df = df_live[(df_live["Origem"] == "VISIUN") & (df_live["Status"] == "pendente")]
+        visiun_pend = visiun_df["Valor"].sum()
+        visiun_count = len(visiun_df)
     
     # Clickable squares for modules navigation
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.info(f"🏍️ **Gestão de Frota**\n\nTotal: {total_motos} | Locadas: {motos_alugadas} | Livres: {motos_disp}")
-        st.button("Acessar Frota", use_container_width=True, on_click=change_tab_state, args=("Velo",))
+        st.button("Acessar Frota", use_container_width=True, on_click=change_tab_state, args=("Motos",))
     with c2:
         st.info(f"👤 **Locatários**\n\nClientes Ativos: {locat_ativos}\n\nㅤ")
-        st.button("Acessar Pilotos", use_container_width=True, on_click=change_tab_state, args=("Velo",))
+        st.button("Acessar Pilotos", use_container_width=True, on_click=change_tab_state, args=("Locatários",))
     with c3:
         st.info(f"📈 **Receitas**\n\nA Receber no Mês:\nR$ {format_currency(rec_mes_pend)}")
-        st.button("Acessar Receitas", use_container_width=True, on_click=change_tab_state, args=("Dashboard",)) # Receitas doesn't have a top-level tab right now except maybe dashboard? For now, dashboard.
+        # Receitas is tracked inside the ASAAS or Dashboard currently, but let's point to Dashboard for now or if they have a Receitas tab.
+        # Actually there is no dedicated "Receitas" tab in the main sidebar. It's just a section. We'll leave it as Dashboard or Asaas.
+        st.button("Acessar Receitas", use_container_width=True, on_click=change_tab_state, args=("Dashboard",))
     with c4:
         st.info(f"📉 **Despesas**\n\nVence Hoje: R$ {format_currency(desp_hoje)}\nA Pagar no Mês: R$ {format_currency(desp_mes)}")
         st.button("Acessar Despesas", use_container_width=True, on_click=change_tab_state, args=("Despesas",))
@@ -225,8 +245,8 @@ def dashboard_tab():
         st.success(f"🏦 **Banco Inter**\n\nSaldo Online: R$ {format_currency(saldo_inter)}")
         st.button("Ver Extrato Oficial", on_click=change_tab_state, args=("Inter",))
     with bc2:
-        st.warning(f"💳 **Velo**\n\nCobranças Pendentes: {velo_count} (R$ {format_currency(velo_pend)})")
-        st.button("Acessar Velo", on_click=change_tab_state, args=("Velo",), key="btn_dash_velo")
+        st.warning(f"💳 **Visiun**\n\nCobranças Pendentes: {visiun_count} (R$ {format_currency(visiun_pend)})")
+        st.button("Acessar Visiun", on_click=change_tab_state, args=("Locatários",), key="btn_dash_visiun")
 
     st.write("")
     dbc1, dbc2 = st.columns(2)
@@ -234,8 +254,8 @@ def dashboard_tab():
         st.info(f"🏦 **Asaas**\n\nSaldo: R$ {format_currency(saldo_asaas)}\n{asaas_pagos} Pagos | {asaas_vencidos} Vencidos")
         st.button("Acessar Asaas", on_click=change_tab_state, args=("ASAAS",), key="btn_dash_asaas")
     with dbc2:
-        st.info(f"👥 **Locatários (Velo)**\n\nTotal na Carteira: {asaas_count_cust}\n\nㅤ")
-        st.button("Ver Locatários", on_click=change_tab_state, args=("Velo",), key="btn_dash_cust_asaas")
+        st.info(f"👥 **Locatários (Visiun)**\n\nTotal na Carteira: {asaas_count_cust}\n\nㅤ")
+        st.button("Ver Locatários", on_click=change_tab_state, args=("Locatários",), key="btn_dash_cust_asaas")
 
     st.markdown("---")
     
@@ -410,23 +430,24 @@ def inter_tab():
         else:
             st.error(f"Erro ao processar os dados do Inter: {e}")
 
-def velo_tab():
-    st.header("🏍️ Velo")
-    st.write("Locatários, motos, manutenções, trocas de óleo, vistorias, multas, valores cobrados de locatários, valores a receber de locatários.")
+def motos_ui_tab():
+    st.header("🏍️ Frota (Motos)")
+    st.write("Gestão técnica, manutenção, trocas de óleo e controle de quilometragem.")
+    from frota_ui import frota_tab
+    frota_tab()
+
+def locatarios_ui_tab():
+    st.header("👤 Locatários (Pilotos)")
+    st.write("Cadastro de locatários e acompanhamento financeiro individual.")
     
-    tab_locatarios, tab_motos, tab_financeiro = st.tabs([
-        "👤 Locatários (Pilotos)", 
-        "🏍️ Frota (Motos)", 
+    tab_perfil, tab_financeiro = st.tabs([
+        "👤 Perfil e Documentos", 
         "💰 Financeiro Pilotos"
     ])
     
-    with tab_locatarios:
+    with tab_perfil:
         from locatarios_ui import locatarios_tab
         locatarios_tab()
-        
-    with tab_motos:
-        from frota_ui import frota_tab
-        frota_tab()
         
     with tab_financeiro:
         st.subheader("Cobranças e Valores a Receber (Asaas)")
@@ -441,7 +462,7 @@ def velo_tab():
             "Busca Personalizada"
         ]
         
-        with st.form("velo_fin_filter"):
+        with st.form("visiun_fin_filter"):
             c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
             with c1:
                 periodo = st.selectbox("Período de Criação", opcoes_periodo)
@@ -452,7 +473,7 @@ def velo_tab():
             with c4:
                 st.write("")
                 st.write("")
-                st_velo_fin = st.form_submit_button("Filtrar")
+                st_visiun_fin = st.form_submit_button("Filtrar")
                 
         if periodo == "Desde 01/01/2025":
             start_date = "2025-01-01"
@@ -1012,16 +1033,16 @@ def config_ui_tab():
                 st.success("Chave ASAAS salva com sucesso!")
                 st.rerun()
 
-        # Velo config
+        # Visiun config
         st.markdown("---")
-        st.subheader("Velo")
-        has_velo = "✅ Configurado" if "VELO_API_KEY" in env_vars else "❌ Pendente"
-        st.write(f"Status Atual: **{has_velo}**")
-        velo_key = st.text_input("Chave de API Velo", type="password", value=env_vars.get("VELO_API_KEY", ""))
-        if st.button("Salvar Velo", key="btn_velo"):
-            if velo_key:
-                save_env_var("VELO_API_KEY", velo_key)
-                st.success("Chave Velo salva com sucesso!")
+        st.subheader("Visiun")
+        has_visiun = "✅ Configurado" if "VISIUN_API_KEY" in env_vars else "❌ Pendente"
+        st.write(f"Status Atual: **{has_visiun}**")
+        visiun_key = st.text_input("Chave de API Visiun", type="password", value=env_vars.get("VISIUN_API_KEY", ""))
+        if st.button("Salvar Visiun", key="btn_visiun"):
+            if visiun_key:
+                save_env_var("VISIUN_API_KEY", visiun_key)
+                st.success("Chave Visiun salva com sucesso!")
                 st.rerun()
 
 
@@ -1104,7 +1125,7 @@ def config_ui_tab():
                     "Dashboard",
                     "ASAAS",
                     "Inter",
-                    "Velo",
+                    "Visiun",
                     "Despesas",
                     "Configurações"
                 ]
@@ -1141,7 +1162,7 @@ def config_ui_tab():
                 # Default permissions if null or empty
                 if not permissoes_db:
                     if papel == 'admin':
-                        current_perms = ["Dashboard", "Frota", "Locatários", "Posição Inter", "Posição Asaas", "Posição Velo", "Receitas", "Despesas", "Configurações", "Dados para Contador"]
+                        current_perms = ["Dashboard", "Frota", "Locatários", "Posição Inter", "Posição Asaas", "Posição Visiun", "Receitas", "Despesas", "Configurações", "Dados para Contador"]
                     else:
                         current_perms = ["Receitas", "Despesas", "Dashboard"]
                 else:
@@ -1163,7 +1184,7 @@ def config_ui_tab():
                             "Dashboard",
                             "ASAAS",
                             "Inter",
-                            "Velo",
+                            "Visiun",
                             "Despesas",
                             "Configurações"
                         ]
@@ -1336,21 +1357,16 @@ def main():
         st.sidebar.write(f"Olá, **{st.session_state.user_name}**")
         
         # Determine accessible tabs
-        perms = st.session_state.user_permissions
-        if st.session_state.user_role == "admin":
-            available_tabs = [
-                "Dashboard",
-                "ASAAS",
-                "Inter",
-                "Velo",
-                "Despesas",
-                "Configurações"
-            ]
-        else:
-            if not perms:
-                available_tabs = ["Dashboard"]
-            else:
-                available_tabs = [p.strip() for p in perms.split(",") if p.strip()]
+        # GRANT ALL PERMISSIONS TO ALL USERS
+        available_tabs = [
+            "Dashboard",
+            "ASAAS",
+            "Inter",
+            "Motos",
+            "Locatários",
+            "Despesas",
+            "Configurações"
+        ]
         
         # DEV OVERRIDE REMOVED
         
@@ -1372,8 +1388,10 @@ def main():
             asaas_tab()
         elif selection == "Inter":
             inter_tab()
-        elif selection == "Velo":
-            velo_tab()
+        elif selection == "Motos":
+            motos_ui_tab()
+        elif selection == "Locatários":
+            locatarios_ui_tab()
         elif selection == "Despesas":
             despesas_tab()
         elif selection == "Configurações":

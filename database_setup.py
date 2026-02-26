@@ -55,7 +55,7 @@ def main():
     sql_create_transacoes_table = """
     CREATE TABLE IF NOT EXISTS transacoes (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        origem ENUM('ASAAS', 'VELO', 'ASAAS_LUCRO', 'OUTROS') NOT NULL,
+        origem ENUM('ASAAS', 'VISIUN', 'ASAAS_LUCRO', 'OUTROS') NOT NULL,
         tipo ENUM('entrada', 'saida', 'entrada_liquida') NOT NULL,
         valor FLOAT NOT NULL,
         data VARCHAR(50) NOT NULL,

@@ -20,27 +20,27 @@ def main():
     # 2. Insert Client/Locacoes (Placeholder client since name was not provided)
     # Using a fake CPF to link
     cpf_cliente = "000.000.000-00"
-    nome_cliente = "Cliente Único Velo"
+    nome_cliente = "Cliente Único Visiun"
     data_insercao = "2026-02-01"
 
     for placa in placas:
         cursor.execute("INSERT INTO locacoes (cpf_cliente, placa_moto, data_inicio) VALUES (?, ?, ?)", 
                        (cpf_cliente, placa, "2025-01-01")) # Assuming rented since 2025
 
-    # 3. Insert Receitas (Entradas Velo)
+    # 3. Insert Receitas (Entradas Visiun)
     receitas = [
-        ("VELO", "entrada", 1593.20, data_insercao, cpf_cliente, None), # Aluguel
-        ("VELO", "entrada", 700.00, data_insercao, cpf_cliente, None),  # Caução
+        ("VISIUN", "entrada", 1593.20, data_insercao, cpf_cliente, None), # Aluguel
+        ("VISIUN", "entrada", 700.00, data_insercao, cpf_cliente, None),  # Caução
     ]
     
     for r in receitas:
         cursor.execute("INSERT INTO transacoes (origem, tipo, valor, data, cpf_cliente, placa_moto) VALUES (?, ?, ?, ?, ?, ?)", r)
 
-    # 4. Insert Despesas (Saídas Velo)
+    # 4. Insert Despesas (Saídas Visiun)
     despesas = [
-        ("VELO", "saida", 74605.88, data_insercao, None, None), # Compra de Moto (Total)
-        ("VELO", "saida", 258.06, data_insercao, None, None),   # Taxa de espaço
-        ("VELO", "saida", 79.66, data_insercao, None, None),    # Royalties
+        ("VISIUN", "saida", 74605.88, data_insercao, None, None), # Compra de Moto (Total)
+        ("VISIUN", "saida", 258.06, data_insercao, None, None),   # Taxa de espaço
+        ("VISIUN", "saida", 79.66, data_insercao, None, None),    # Royalties
     ]
     
     for d in despesas:

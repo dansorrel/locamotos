@@ -21,7 +21,8 @@ class DatabaseManager:
                 password=DB_PASS,
                 database=DB_NAME,
                 charset='utf8mb4',
-                connect_timeout=10
+                connect_timeout=10,
+                autocommit=True
             )
         except Exception as e:
             print(f"!!! DATABASE CONNECTION ERROR !!!")
@@ -135,6 +136,39 @@ class DatabaseManager:
                 query = f"UPDATE motos SET {', '.join(updates)} WHERE placa = %s"
                 cursor.execute(query, tuple(params))
             conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def update_moto_odometer(self, placa, odometro):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("UPDATE motos SET odometro = %s WHERE placa = %s", (odometro, placa))
+            return True
+        finally:
+            conn.close()
+
+    def sync_moto_association(self, placa, locatario_nome, move_to_status="Alugado"):
+        """
+        Links a moto to a locatario and updates both tables.
+        If locatario_nome is None, it unlinks and sets moto to 'Disponível'.
+        """
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                if locatario_nome:
+                    # 1. Unlink this moto from any previous locatario's record
+                    cursor.execute("UPDATE locatarios SET placa_associada = NULL WHERE placa_associada = %s", (placa,))
+                    # 2. Update Moto: Set locatario and status
+                    cursor.execute("UPDATE motos SET locatario = %s, disponibilidade = %s WHERE placa = %s", (locatario_nome, move_to_status, placa))
+                    # 3. Update new Locatario record: link to this placa
+                    cursor.execute("UPDATE locatarios SET placa_associada = %s WHERE nome = %s", (placa, locatario_nome))
+                else:
+                    # Unlinking: Clear moto locatario and reset status to Disponivel
+                    cursor.execute("UPDATE motos SET locatario = NULL, disponibilidade = 'Disponível' WHERE placa = %s", (placa,))
+                    # Clear any locatario record that still points to this placa
+                    cursor.execute("UPDATE locatarios SET placa_associada = NULL WHERE placa_associada = %s", (placa,))
             return True
         finally:
             conn.close()
