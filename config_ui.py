@@ -60,17 +60,21 @@ def init_session_state():
 
     # Synchronize cookies
     if "cookies_synced" not in st.session_state:
-        # Give the Streamlit component a moment to mount in the browser
-        cookies = cookie_manager.get_all()
+        # We only call get_all() ONCE per script run to avoid StreamlitDuplicateElementKey
+        cookies = cookie_manager.get_all(key="cookie_sync")
+        
         # extra-streamlit-components returns an empty dict initially
         if len(cookies.keys()) == 0 and st.session_state.cookie_sync_attempts < 2:
             st.session_state.cookie_sync_attempts += 1
             return False # Not yet synced
+            
         st.session_state.cookies_synced = True
+        st.session_state.cached_cookies = cookies
 
     # Check for remember me cookie
     if not st.session_state.logged_in:
-        cookies = cookie_manager.get_all()
+        # Reuse the cookies dict we got earlier, or get it once if somehow bypassed
+        cookies = st.session_state.get("cached_cookies", cookie_manager.get_all(key="cookie_login"))
         rem_user = cookies.get("locamotos_user")
         if rem_user:
             db = DatabaseManager()
