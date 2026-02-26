@@ -760,7 +760,7 @@ def asaas_tab():
                 style = []
                 for col in row.index:
                     if col == "Valor Cobrado" and is_diff:
-                        style.append('color: red; font-weight: bold')
+                        style.append('color: #FF6B6B; font-weight: bold')
                     else:
                         style.append('')
                 return style
@@ -1295,68 +1295,376 @@ def auto_send_accountant_export():
 def main():
     st.set_page_config(page_title="Locamotos", page_icon="🏍️", layout="wide")
     
-    # --- Squarespace CSS Theme ---
+    # --- Dark Mode Premium Theme ---
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+    /* === BASE === */
     html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-        color: #111111;
+        font-family: 'Inter', sans-serif !important;
+        color: #E2E8F0 !important;
+        color-scheme: dark !important;
     }
     .stApp {
-        background-color: #FAFAFA;
+        background: linear-gradient(145deg, #0D0F12 0%, #111318 50%, #0D0F12 100%) !important;
+        color: #E2E8F0 !important;
     }
+    /* Force all generic containers dark */
+    .main .block-container, .stMainBlockContainer, [data-testid="stAppViewBlockContainer"] {
+        color: #E2E8F0 !important;
+    }
+    /* Force ALL text elements */
+    .stMarkdown, .stMarkdown p, .stMarkdown span, .stMarkdown li, .stMarkdown div,
+    .stText, div[data-testid="stText"], .element-container {
+        color: #CBD5E1 !important;
+    }
+    /* Force strong/bold white */
+    .stMarkdown strong, .stMarkdown b {
+        color: #F1F5F9 !important;
+    }
+
+    /* === TYPOGRAPHY === */
     h1, h2, h3, h4, h5, h6 {
         font-weight: 600 !important;
         letter-spacing: -0.02em;
-        color: #111111 !important;
+        color: #F1F5F9 !important;
     }
-    /* Modern rounded buttons */
-    .stButton > button {
-        background-color: #111111 !important;
+    h1 { color: #FFFFFF !important; }
+    p, span, label, .stMarkdown {
+        color: #CBD5E1 !important;
+    }
+
+    /* === SIDEBAR === */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #131620 0%, #0F1117 100%) !important;
+        border-right: 1px solid rgba(255,255,255,0.06) !important;
+    }
+    [data-testid="stSidebar"] * {
+        color: #CBD5E1 !important;
+    }
+    [data-testid="stSidebar"] .stRadio label:hover {
+        color: #00D4AA !important;
+    }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 {
         color: #FFFFFF !important;
+    }
+    /* Sidebar radio selected */
+    [data-testid="stSidebar"] [role="radiogroup"] label[data-checked="true"] {
+        color: #00D4AA !important;
+        font-weight: 600 !important;
+    }
+
+    /* === HEADER === */
+    header[data-testid="stHeader"] {
+        background-color: rgba(13, 15, 18, 0.8) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+    }
+
+    /* === BUTTONS === */
+    .stButton > button {
+        background: linear-gradient(135deg, #00D4AA 0%, #00B894 100%) !important;
+        color: #0D0F12 !important;
         border: none !important;
-        border-radius: 8px !important;
-        padding: 0.6rem 1.2rem !important;
-        font-weight: 500 !important;
-        transition: all 0.2s ease;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        border-radius: 10px !important;
+        padding: 0.6rem 1.4rem !important;
+        font-weight: 600 !important;
+        font-size: 0.85rem !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 2px 8px rgba(0, 212, 170, 0.15) !important;
+        letter-spacing: 0.01em !important;
     }
     .stButton > button:hover {
-        background-color: #333333 !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
+        background: linear-gradient(135deg, #00E5B8 0%, #00CCA3 100%) !important;
+        box-shadow: 0 4px 16px rgba(0, 212, 170, 0.3) !important;
+        transform: translateY(-1px) !important;
     }
-    /* Subdued metric boxes / Info boxes */
+    .stButton > button:active {
+        transform: translateY(0px) !important;
+        box-shadow: 0 2px 4px rgba(0, 212, 170, 0.2) !important;
+    }
+    /* Form submit buttons */
+    .stFormSubmitButton > button {
+        background: linear-gradient(135deg, #00D4AA 0%, #00B894 100%) !important;
+        color: #0D0F12 !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
+    }
+
+    /* === METRICS === */
     [data-testid="stMetricValue"] {
-        font-weight: 600;
-        color: #111111 !important;
+        font-weight: 700 !important;
+        color: #FFFFFF !important;
+        font-size: 1.8rem !important;
     }
+    [data-testid="stMetricLabel"] {
+        color: #94A3B8 !important;
+    }
+    [data-testid="stMetricDelta"] > div {
+        color: #00D4AA !important;
+    }
+
+    /* === CARDS / CONTAINERS === */
+    [data-testid="stVerticalBlock"] > div > div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: rgba(22, 26, 33, 0.6) !important;
+        border: 1px solid rgba(255,255,255,0.05) !important;
+        border-radius: 12px !important;
+        backdrop-filter: blur(8px) !important;
+    }
+
+    /* === ALERTS / INFO / SUCCESS / WARNING / ERROR === */
     .stAlert {
-        border-radius: 8px !important;
-        border: 1px solid #EBEBEB !important;
-        background-color: #FFFFFF !important;
-        color: #111111 !important;
+        border-radius: 10px !important;
+        border: 1px solid rgba(255,255,255,0.06) !important;
     }
-    /* Dataframe styling */
+    /* Force all alert text light */
+    .stAlert *, .stAlert p, .stAlert span, .stAlert div,
+    [data-testid="stAlert"] *, [data-testid="stAlert"] p,
+    [data-testid="stAlert"] span, [data-testid="stAlert"] div {
+        color: #CBD5E1 !important;
+    }
+    div[data-testid="stAlert"]:has(div[role="alert"]) {
+        background-color: rgba(22, 26, 33, 0.8) !important;
+        border: 1px solid rgba(0, 212, 170, 0.15) !important;
+    }
+    /* Success alerts */
+    div[data-testid="stAlert"][data-baseweb="notification"]:has([kind="positive"]),
+    .element-container .stSuccess {
+        background-color: rgba(0, 212, 170, 0.08) !important;
+        border: 1px solid rgba(0, 212, 170, 0.2) !important;
+    }
+    /* Warning alerts */  
+    div[data-testid="stAlert"][data-baseweb="notification"]:has([kind="warning"]),
+    .element-container .stWarning {
+        background-color: rgba(250, 204, 21, 0.08) !important;
+        border: 1px solid rgba(250, 204, 21, 0.2) !important;
+    }
+    /* Error alerts */
+    div[data-testid="stAlert"][data-baseweb="notification"]:has([kind="negative"]),
+    .element-container .stError {
+        background-color: rgba(239, 68, 68, 0.08) !important;
+        border: 1px solid rgba(239, 68, 68, 0.2) !important;
+    }
+
+    /* === DATAFRAMES / TABLES === */
     [data-testid="stDataFrame"] {
-        border-radius: 8px;
-        background-color: #FFFFFF;
+        border-radius: 10px !important;
+        overflow: hidden !important;
     }
-    /* Header hiding (optional, makes it cleaner) */
-    header[data-testid="stHeader"] {
+    [data-testid="stDataFrame"] > div {
+        background-color: #161A21 !important;
+        border-radius: 10px !important;
+    }
+    /* Table header */
+    [data-testid="stDataFrame"] thead th {
+        background-color: #1E2330 !important;
+        color: #94A3B8 !important;
+        font-weight: 600 !important;
+        text-transform: uppercase !important;
+        font-size: 0.75rem !important;
+        letter-spacing: 0.05em !important;
+    }
+    /* Table rows */
+    [data-testid="stDataFrame"] tbody td {
+        color: #CBD5E1 !important;
+        border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+    }
+    [data-testid="stDataFrame"] tbody tr:hover td {
+        background-color: rgba(0, 212, 170, 0.04) !important;
+    }
+
+    /* === INPUTS === */
+    .stTextInput input, .stNumberInput input {
+        background-color: #161A21 !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-radius: 8px !important;
+        color: #E2E8F0 !important;
+        transition: border-color 0.2s ease !important;
+    }
+    .stTextInput input:focus, .stNumberInput input:focus {
+        border-color: #00D4AA !important;
+        box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15) !important;
+    }
+    /* Select boxes */
+    .stSelectbox > div > div {
+        background-color: #161A21 !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-radius: 8px !important;
+        color: #E2E8F0 !important;
+    }
+    .stSelectbox [data-baseweb="select"] span {
+        color: #E2E8F0 !important;
+    }
+    /* Date input */
+    .stDateInput > div > div {
+        background-color: #161A21 !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-radius: 8px !important;
+    }
+    .stDateInput input {
+        color: #E2E8F0 !important;
+    }
+    /* Checkbox */
+    .stCheckbox label span {
+        color: #CBD5E1 !important;
+    }
+
+    /* === TABS === */
+    .stTabs [data-baseweb="tab-list"] {
         background-color: transparent !important;
+        border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+        gap: 0 !important;
     }
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #FFFFFF;
-        border-right: 1px solid #EBEBEB;
+    .stTabs [data-baseweb="tab"] {
+        color: #64748B !important;
+        font-weight: 500 !important;
+        border-bottom: 2px solid transparent !important;
+        padding: 0.75rem 1.2rem !important;
+        transition: all 0.2s ease !important;
     }
-    /* Inputs */
-    .stTextInput input, .stSelectbox > div > div {
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #E2E8F0 !important;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        color: #00D4AA !important;
+        border-bottom: 2px solid #00D4AA !important;
+        font-weight: 600 !important;
+    }
+
+    /* === EXPANDERS === */
+    .streamlit-expanderHeader {
+        background-color: rgba(22, 26, 33, 0.6) !important;
+        border: 1px solid rgba(255,255,255,0.06) !important;
+        border-radius: 10px !important;
+        color: #E2E8F0 !important;
+    }
+    .streamlit-expanderContent {
+        background-color: rgba(22, 26, 33, 0.4) !important;
+        border: 1px solid rgba(255,255,255,0.04) !important;
+        border-top: none !important;
+    }
+
+    /* === FORMS === */
+    [data-testid="stForm"] {
+        background-color: rgba(22, 26, 33, 0.5) !important;
+        border: 1px solid rgba(255,255,255,0.06) !important;
+        border-radius: 12px !important;
+        padding: 1.5rem !important;
+    }
+
+    /* === DIVIDERS === */
+    hr {
+        border-color: rgba(255,255,255,0.06) !important;
+    }
+
+    /* === FILE UPLOADER === */
+    [data-testid="stFileUploader"] {
+        background-color: rgba(22, 26, 33, 0.4) !important;
+        border: 1px dashed rgba(255,255,255,0.1) !important;
+        border-radius: 10px !important;
+    }
+    [data-testid="stFileUploader"]:hover {
+        border-color: rgba(0, 212, 170, 0.3) !important;
+    }
+
+    /* === CHARTS === */
+    [data-testid="stVegaLiteChart"] {
+        background-color: rgba(22, 26, 33, 0.4) !important;
+        border-radius: 12px !important;
+        padding: 0.5rem !important;
+    }
+
+    /* === TOAST === */
+    [data-testid="stToast"] {
+        background-color: #1E2330 !important;
+        color: #E2E8F0 !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-radius: 10px !important;
+    }
+
+    /* === SCROLLBAR === */
+    ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.1);
+        border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255,255,255,0.2);
+    }
+
+    /* === POPOVER / DROPDOWN MENUS === */
+    [data-baseweb="popover"] {
+        background-color: #1E2330 !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-radius: 10px !important;
+    }
+    [data-baseweb="menu"] {
+        background-color: #1E2330 !important;
+    }
+    [data-baseweb="menu"] li {
+        color: #CBD5E1 !important;
+    }
+    [data-baseweb="menu"] li:hover {
+        background-color: rgba(0, 212, 170, 0.1) !important;
+    }
+    
+    /* === SPINNER === */
+    .stSpinner > div {
+        border-top-color: #00D4AA !important;
+    }
+
+    /* === LINKS === */
+    a {
+        color: #00D4AA !important;
+    }
+    a:hover {
+        color: #00E5B8 !important;
+    }
+
+    /* === RADIO BUTTONS (Main Content) === */
+    .stRadio [role="radiogroup"] label {
+        color: #CBD5E1 !important;
+        transition: color 0.2s ease !important;
+    }
+    .stRadio [role="radiogroup"] label:hover {
+        color: #00D4AA !important;
+    }
+
+    /* === NUMBER INPUT BUTTONS === */
+    .stNumberInput button {
+        background-color: #1E2330 !important;
+        color: #CBD5E1 !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+    }
+    .stNumberInput button:hover {
+        background-color: rgba(0, 212, 170, 0.15) !important;
+        color: #00D4AA !important;
+    }
+
+    /* === MULTISELECT === */
+    .stMultiSelect > div > div {
+        background-color: #161A21 !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-radius: 8px !important;
+    }
+    .stMultiSelect [data-baseweb="tag"] {
+        background-color: rgba(0, 212, 170, 0.15) !important;
+        color: #00D4AA !important;
         border-radius: 6px !important;
-        border: 1px solid #EBEBEB !important;
     }
+
+    /* === LOADING MESSAGE === */
+    .stMarkdown div[style*="text-align: center"] {
+        color: #94A3B8 !important;
+    }
+
     </style>
     """, unsafe_allow_html=True)
     
