@@ -186,11 +186,20 @@ def dashboard_tab():
         
         asaas_pagos = len([p for p in pgs_asaas if p.get('status') in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"]])
         asaas_vencidos = len([p for p in pgs_asaas if p.get('status') == "OVERDUE"])
+        
+        # Calculate Future Receivables (up to 1 year)
+        e_asaas_future = (h_asaas + datetime.timedelta(days=365)).strftime("%Y-%m-%d")
+        pgs_asaas_future = ac.get_all_payments(s_asaas, e_asaas_future)
+        asaas_pendentes_valor = sum(p.get("value", 0.0) for p in pgs_asaas_future if p.get("status") == "PENDING")
+        asaas_pendentes_qtd = sum(1 for p in pgs_asaas_future if p.get("status") == "PENDING")
+        
         asaas_count_cust = len(ac.get_customers())
     except Exception:
         saldo_asaas = 0.0
         asaas_pagos = 0
         asaas_vencidos = 0
+        asaas_pendentes_valor = 0.0
+        asaas_pendentes_qtd = 0
         asaas_count_cust = 0
 
     # Frota
@@ -246,9 +255,9 @@ def dashboard_tab():
     st.markdown("### 🏢 2. Posição ASAAS")
     c1, c2 = st.columns([1,2])
     with c1:
-        st.info(f"Saldo Recebível: R$ {format_currency(saldo_asaas)}")
+        st.info(f"Saldo Recebível: R$ {format_currency(saldo_asaas)}\n\nA Receber Futuro: R$ {format_currency(asaas_pendentes_valor)}")
     with c2:
-        st.write(f"**Métricas (30 dias):** {asaas_pagos} Recebimentos | {asaas_vencidos} Vencidos | Clientes Ativos: {asaas_count_cust}")
+        st.write(f"**Métricas (30 dias):** {asaas_pagos} Pagos | {asaas_vencidos} Vencidos | {asaas_pendentes_qtd} Boletos Pendentes\n\n**Clientes Ativos:** {asaas_count_cust}")
     st.button("Acessar Asaas", on_click=change_tab_state, args=("ASAAS",))
 
     st.write("")
@@ -632,13 +641,21 @@ def asaas_tab():
         from asaas_client import AsaasClient
         client = AsaasClient()
         
-        # Top Metrics
-        saldo = client.get_balance()
-        customers = client.get_customers()
+        # We need to get payments to calculate the future projection
+        hoje = datetime.date.today()
+        # Look ahead up to 1 year and behind 30 days for open charges
+        s_asaas = (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+        e_asaas = (hoje + datetime.timedelta(days=365)).strftime("%Y-%m-%d")
+        all_pgs = client.get_all_payments(s_asaas, e_asaas)
         
-        c_top1, c_top2 = st.columns(2)
+        # Calculate Pending Value Total
+        total_futuro_pendente = sum(p.get("value", 0.0) for p in all_pgs if p.get("status") == "PENDING")
+        qtd_futuro_pendente = sum(1 for p in all_pgs if p.get("status") == "PENDING")
+        
+        c_top1, c_top2, c_top3 = st.columns(3)
         c_top1.metric("Saldo Disponível (Asaas)", format_currency(saldo))
-        c_top2.metric("Total de Clientes (Asaas)", len(customers))
+        c_top2.metric(f"A Receber ({qtd_futuro_pendente} boletos)", format_currency(total_futuro_pendente))
+        c_top3.metric("Total de Clientes", len(customers))
         
         # Sweep Trigger (Simulated for UI)
         st.write("### 🧹 Varredura Automática")
