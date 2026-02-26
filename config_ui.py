@@ -9,11 +9,7 @@ from locatarios_ui import locatarios_tab
 from dotenv import load_dotenv
 import extra_streamlit_components as stx
 
-@st.cache_resource
-def get_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_manager()
+cookie_manager = stx.CookieManager()
 
 # --- Utility Functions ---
 
@@ -378,10 +374,11 @@ def inter_tab():
             transacoes_inter = extrato.get("transacoes", [])
             if transacoes_inter:
                 df_inter = pd.DataFrame(transacoes_inter)
-                if "dataInclusao" in df_inter.columns:
-                    df_inter["dataInclusao"] = pd.to_datetime(df_inter["dataInclusao"]).dt.strftime("%d/%m/%Y")
+                for date_col in ["dataInclusao", "dataTransacao", "dataLancamento"]:
+                    if date_col in df_inter.columns:
+                        df_inter[date_col] = pd.to_datetime(df_inter[date_col]).dt.strftime("%d/%m/%Y")
                 # Select important columns if available
-                cols_to_show = [c for c in ["dataInclusao", "tipoTransacao", "valor", "descricao"] if c in df_inter.columns]
+                cols_to_show = [c for c in ["dataLancamento", "dataTransacao", "dataInclusao", "tipoTransacao", "valor", "descricao"] if c in df_inter.columns]
                 if cols_to_show:
                     if "valor" in cols_to_show:
                         st.dataframe(
