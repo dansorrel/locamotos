@@ -1045,6 +1045,8 @@ def config_ui_tab():
     import os
     st.header("Configurações")
     
+    CERTS_DIR = "certs"
+    
     st.write("Estas chaves ficam salvas apenas localmente na sua máquina em um arquivo `.env`.")
     env_vars = load_env_vars()
 
