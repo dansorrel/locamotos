@@ -97,9 +97,7 @@ def do_login(username_login, password, lembrar_user):
         if verify_password(senha_hash, password):
             if status == "aprovado":
                 if lembrar_user:
-                    # Expire in 5 days
-                    exp_date = datetime.datetime.now() + datetime.timedelta(days=5)
-                    cookie_manager.set("locamotos_user", username_db, expires_at=exp_date)
+                    st.session_state.cookie_to_set = username_db
                     
                 st.session_state.logged_in = True
                 st.session_state.user_id = user_id
@@ -117,7 +115,7 @@ def do_login(username_login, password, lembrar_user):
         st.error("Usuário não encontrado.")
 
 def do_logout():
-    cookie_manager.delete("locamotos_user")
+    st.session_state.cookie_to_delete = True
     st.session_state.logged_in = False
     st.session_state.user_id = None
     st.session_state.user_name = None
@@ -1473,6 +1471,16 @@ def main():
     if not init_session_state():
         st.markdown("<div style='text-align: center; margin-top: 20%;'>Carregando sessão de segurança...</div>", unsafe_allow_html=True)
         st.stop()
+        
+    # Process pending cookie operations securely before rendering anything
+    if "cookie_to_set" in st.session_state:
+        exp_date = datetime.datetime.now() + datetime.timedelta(days=5)
+        cookie_manager.set("locamotos_user", st.session_state.cookie_to_set, expires_at=exp_date)
+        del st.session_state.cookie_to_set
+        
+    if "cookie_to_delete" in st.session_state:
+        cookie_manager.delete("locamotos_user")
+        del st.session_state.cookie_to_delete
     
     
     if not st.session_state.logged_in:
