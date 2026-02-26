@@ -641,6 +641,10 @@ def asaas_tab():
         from asaas_client import AsaasClient
         client = AsaasClient()
         
+        # Top Metrics (restored)
+        saldo = client.get_balance()
+        customers = client.get_customers()
+        
         # We need to get payments to calculate the future projection
         hoje = datetime.date.today()
         # Look ahead up to 1 year and behind 30 days for open charges
