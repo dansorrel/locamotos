@@ -321,6 +321,28 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def update_transaction(self, tx_id, origem, valor, data, status, cpf_cliente=None, placa_moto=None):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE transacoes 
+                    SET origem=%s, valor=%s, data=%s, status=%s, cpf_cliente=%s, placa_moto=%s
+                    WHERE id=%s
+                """, (origem, valor, data, status, cpf_cliente, placa_moto, tx_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def delete_transaction(self, tx_id):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM transacoes WHERE id=%s", (tx_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
     def create_user(self, nome, username, email, senha_hash, papel, status, permissoes="Dashboard"):
         conn = self.get_connection()
         try:

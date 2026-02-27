@@ -931,10 +931,14 @@ def receitas_despesas_tab():
         
         try:
             locatarios = db.get_locatarios_list()  # (id, nome, cpf, telefone, placa_associada)
-            locatario_options = {f"{l[1]} (CPF: {l[2]})": l for l in locatarios}
+            locatario_options = {l[1]: l for l in locatarios}  # key = nome
+            cpf_to_nome = {l[2]: l[1] for l in locatarios}
+            cpf_to_placa = {l[2]: (l[4] or "—") for l in locatarios}
         except Exception:
             locatarios = []
             locatario_options = {}
+            cpf_to_nome = {}
+            cpf_to_placa = {}
             
         with st.form("receita_manual_form"):
             col_cat, col_loc = st.columns(2)
@@ -954,13 +958,11 @@ def receitas_despesas_tab():
             with col_valor_r:
                 sel_valor_r = st.number_input("Valor (R$)", min_value=0.01, step=100.0, format="%.2f", key="valor_receita")
             
-            col_orig_r, col_status_r, col_desc_r = st.columns(3)
-            with col_orig_r:
-                sel_origem_r = st.selectbox("Conta de Destino", ["Inter", "ASAAS", "Dinheiro", "Outros"], key="origem_receita")
+            col_status_r, col_desc_r = st.columns(2)
             with col_status_r:
-                sel_status_r = st.selectbox("Status", ["recebido", "pendente"], key="status_receita")
+                sel_status_r = st.selectbox("Status do Pagamento", ["recebido", "pendente"], key="status_receita")
             with col_desc_r:
-                sel_desc_r = st.text_input("Observação (opcional)", key="desc_receita", placeholder=f"Ex: Aluguel ref. março/2026")
+                sel_desc_r = st.text_input("Observação (opcional)", key="desc_receita", placeholder="Ex: Aluguel ref. semana 10/03")
             
             submit_rec = st.form_submit_button("Registrar Receita")
             
@@ -972,7 +974,7 @@ def receitas_despesas_tab():
                 placa_r = sel_placa_r if sel_placa_r != "Geral" else None
                 
                 db.add_transaction(
-                    origem=sel_origem_r,
+                    origem="Manual",
                     tipo="entrada",
                     valor=sel_valor_r,
                     data=sel_data_r.strftime("%Y-%m-%d"),
@@ -991,27 +993,33 @@ def receitas_despesas_tab():
         all_receitas_local = [tx for tx in all_txs if tx[2] in ('entrada', 'entrada_liquida')]
         
         rows = []
+        manual_tx_ids = []  # Track IDs for editing
         for tx in all_receitas_local:
+            cliente_nome = cpf_to_nome.get(tx[6], tx[6]) if tx[6] else "—"
+            placa = tx[7] or cpf_to_placa.get(tx[6], "—") if tx[6] else (tx[7] or "—")
             rows.append({
-                "Origem": tx[1],
-                "Cliente": tx[6] or "—",
+                "ID": tx[0],
+                "Origem": "Manual" if tx[1] != "ASAAS" else tx[1],
+                "Cliente": cliente_nome,
                 "Valor Bruto": float(tx[3]),
                 "Valor Líquido": float(tx[3]),
                 "Data": tx[4],
                 "Status": tx[5],
-                "Placa": tx[7] or "—"
+                "Placa": placa
             })
+            manual_tx_ids.append(tx[0])
         
         # 2. ASAAS paid boletos (automatic)
+        asaas_cust_cpf_map = {}  # customer_id -> cpfCnpj
         try:
             from asaas_client import AsaasClient
             ac = AsaasClient()
             
-            # Fetch customers for name mapping
+            # Fetch customers for name and CPF mapping
             customers = ac.get_customers()
             cust_map = {c["id"]: c.get("name", c.get("cpfCnpj", "Desconhecido")) for c in customers}
+            asaas_cust_cpf_map = {c["id"]: c.get("cpfCnpj", "") for c in customers}
             
-            # Fetch all payments from the beginning of the year (or wider range)
             h = datetime.date.today()
             asaas_start = datetime.date(2025, 1, 1).strftime("%Y-%m-%d")
             asaas_end = (h + datetime.timedelta(days=365)).strftime("%Y-%m-%d")
@@ -1029,15 +1037,20 @@ def receitas_despesas_tab():
                 pg_status = pg.get("status", "")
                 if pg_status in ("RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH", "PENDING", "OVERDUE"):
                     cliente_nome = cust_map.get(pg.get("customer"), pg.get("customer", "—"))
+                    # Cross-reference with locatarios to get plate
+                    cust_cpf = asaas_cust_cpf_map.get(pg.get("customer"), "")
+                    placa = cpf_to_placa.get(cust_cpf, "—")
+                    
                     data_pg = pg.get("paymentDate") or pg.get("dueDate") or pg.get("dateCreated", "")
                     rows.append({
+                        "ID": None,
                         "Origem": "ASAAS",
                         "Cliente": cliente_nome,
                         "Valor Bruto": float(pg.get("value", 0)),
                         "Valor Líquido": float(pg.get("netValue", pg.get("value", 0))),
                         "Data": data_pg,
                         "Status": status_map.get(pg_status, pg_status.lower()),
-                        "Placa": "—"
+                        "Placa": placa
                     })
         except Exception as e:
             st.warning(f"Não foi possível buscar boletos do ASAAS: {e}")
@@ -1049,7 +1062,54 @@ def receitas_despesas_tab():
             df_rec["Data"] = pd.to_datetime(df_rec["Data"], errors="coerce")
             hoje = datetime.date.today()
             
-            _render_financial_history(df_rec, hoje, "receitas")
+            # Display without the ID column
+            _render_financial_history(df_rec.drop(columns=["ID"], errors="ignore"), hoje, "receitas")
+        
+        # ========== EDITAR ENTRADAS MANUAIS ==========
+        if all_receitas_local:
+            st.markdown("---")
+            st.subheader("✏️ Editar Entradas Manuais")
+            
+            for tx in all_receitas_local:
+                tx_id, tx_orig, tx_tipo, tx_valor, tx_data, tx_status, tx_cpf, tx_placa = tx
+                cliente_nome = cpf_to_nome.get(tx_cpf, tx_cpf) if tx_cpf else "Sem vínculo"
+                data_fmt = pd.to_datetime(tx_data).strftime("%d/%m/%Y") if tx_data else "—"
+                
+                with st.expander(f"#{tx_id} — {cliente_nome} — R$ {float(tx_valor):.2f} — {data_fmt} — {tx_status}"):
+                    with st.form(f"edit_tx_{tx_id}"):
+                        e_c1, e_c2 = st.columns(2)
+                        with e_c1:
+                            edit_valor = st.number_input("Valor (R$)", value=float(tx_valor), min_value=0.01, step=10.0, format="%.2f", key=f"ev_{tx_id}")
+                            edit_data = st.date_input("Data", value=pd.to_datetime(tx_data).date() if tx_data else datetime.date.today(), format="DD/MM/YYYY", key=f"ed_{tx_id}")
+                        with e_c2:
+                            edit_status = st.selectbox("Status", ["recebido", "pendente"], index=["recebido", "pendente"].index(tx_status) if tx_status in ["recebido", "pendente"] else 0, key=f"es_{tx_id}")
+                            loc_edit_names = ["(Sem vínculo)"] + list(locatario_options.keys())
+                            current_loc_idx = 0
+                            if tx_cpf and tx_cpf in cpf_to_nome:
+                                try:
+                                    current_loc_idx = loc_edit_names.index(cpf_to_nome[tx_cpf])
+                                except ValueError:
+                                    current_loc_idx = 0
+                            edit_loc = st.selectbox("Locatário", loc_edit_names, index=current_loc_idx, key=f"el_{tx_id}")
+                        
+                        e_c3, e_c4 = st.columns(2)
+                        with e_c3:
+                            if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
+                                new_cpf = None
+                                if edit_loc != "(Sem vínculo)" and edit_loc in locatario_options:
+                                    new_cpf = locatario_options[edit_loc][2]
+                                db.update_transaction(
+                                    tx_id, "Manual", edit_valor, 
+                                    edit_data.strftime("%Y-%m-%d"), edit_status,
+                                    cpf_cliente=new_cpf, placa_moto=tx_placa
+                                )
+                                st.success("Entrada atualizada com sucesso!")
+                                st.rerun()
+                        with e_c4:
+                            if st.form_submit_button("🗑️ Excluir", use_container_width=True):
+                                db.delete_transaction(tx_id)
+                                st.success("Entrada excluída!")
+                                st.rerun()
     
     # ========== DESPESAS ==========
     with tab_despesas:
