@@ -282,7 +282,7 @@ def dashboard_tab():
             color = "error"
             
         st.info(f"💰 **Balanço Mês - A Vencer**\n\nReceitas: R$ {format_currency(rec_mes_pend)}\nDespesas: R$ {format_currency(desp_mes)}\n\n**Líquido Estimado**: {res_str}")
-        st.button("Acessar Despesas", use_container_width=True, on_click=change_tab_state, args=("Despesas",))
+        st.button("Acessar Receitas e Despesas", use_container_width=True, on_click=change_tab_state, args=("Receitas e Despesas",))
 
     st.write("")
     
@@ -912,72 +912,154 @@ def receitas_tab():
         }
     )
 
-def despesas_tab():
-    st.header("📉 Despesas")
-    st.write("Royalties, contador, taxa de aluguel de espaço, cooperloc, fundo de marketing, taxa de publicidade, licenciamento, IPVA, seguros, pró-labore.")
+def receitas_despesas_tab():
+    st.header("💰 Receitas e Despesas")
+    st.write("Registre e acompanhe todas as entradas e saídas financeiras.")
     
     db = DatabaseManager()
     
-    st.subheader("Registrar Despesa Manualmente")
+    tab_receitas, tab_despesas = st.tabs(["📈 Receitas", "📉 Despesas"])
     
-    try:
-        motos = db.get_all_motos()
-    except Exception:
-        motos = []
+    # ========== RECEITAS ==========
+    with tab_receitas:
+        st.subheader("Registrar Receita Manualmente")
         
-    with st.form("manual_entry_form"):
-        col_cat, col_placa, col_data = st.columns(3)
-        with col_cat:
-            categoria = st.selectbox("Categoria", [
-                "Royalties", "Contador", "Taxa de aluguel de espaço", "Cooperloc", 
-                "Fundo de marketing", "Taxa de publicidade", "Licenciamento", 
-                "IPVA", "Seguros", "Pró-labore"
-            ])
-        with col_placa:
-            sel_placa = st.selectbox("Moto (Placa) [Opcional]", ["Geral/Administrativo"] + motos)
-        with col_data:
-            sel_data = st.date_input("Data da Despesa", format="DD/MM/YYYY")
-            
-        col_origem, col_valor, col_status = st.columns(3)
-        with col_origem:
-            sel_origem = st.selectbox("Conta de Origem", ["Inter", "ASAAS", "Outros"])
-        with col_valor:
-            sel_valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
-        with col_status:
-            sel_status = st.selectbox("Status", ["pago", "pendente"], key="status_despesa")
-            
-        submit_btn = st.form_submit_button("Registrar Despesa")
+        try:
+            motos = db.get_all_motos()
+        except Exception:
+            motos = []
         
-        if submit_btn:
-            db.add_transaction(
-                origem=sel_origem,
-                tipo="saida",
-                valor=sel_valor,
-                data=sel_data.strftime("%Y-%m-%d"),
-                status=sel_status,
-                placa_moto=sel_placa if sel_placa != "Geral/Administrativo" else None
-                # Note: We might want to store the category in the database too.
-                # For now, adding it to description or similar if we have it.
-            )
-            st.success(f"Despesa de {categoria} registrada com sucesso!")
-            st.rerun()
+        try:
+            locatarios = db.get_locatarios_list()  # (id, nome, cpf, telefone, placa_associada)
+            locatario_options = {f"{l[1]} (CPF: {l[2]})": l for l in locatarios}
+        except Exception:
+            locatarios = []
+            locatario_options = {}
+            
+        with st.form("receita_manual_form"):
+            col_cat, col_loc = st.columns(2)
+            with col_cat:
+                categoria_rec = st.selectbox("Tipo de Receita", [
+                    "Aluguel Mensal", "Caução", "Multa Contratual", "Outros"
+                ])
+            with col_loc:
+                loc_names = ["(Sem vínculo)"] + list(locatario_options.keys())
+                sel_locatario = st.selectbox("Locatário (Cliente)", loc_names)
                 
-    st.markdown("---")
-    st.subheader("Histórico de Despesas")
-
-    all_txs = db.get_transactions()
-    all_despesas = [tx for tx in all_txs if tx[2] == 'saida']
+            col_placa_r, col_data_r, col_valor_r = st.columns(3)
+            with col_placa_r:
+                sel_placa_r = st.selectbox("Moto (Placa) [Opcional]", ["Geral"] + motos, key="placa_receita")
+            with col_data_r:
+                sel_data_r = st.date_input("Data do Recebimento", format="DD/MM/YYYY", key="data_receita")
+            with col_valor_r:
+                sel_valor_r = st.number_input("Valor (R$)", min_value=0.01, step=100.0, format="%.2f", key="valor_receita")
+            
+            col_orig_r, col_status_r, col_desc_r = st.columns(3)
+            with col_orig_r:
+                sel_origem_r = st.selectbox("Conta de Destino", ["Inter", "ASAAS", "Dinheiro", "Outros"], key="origem_receita")
+            with col_status_r:
+                sel_status_r = st.selectbox("Status", ["recebido", "pendente"], key="status_receita")
+            with col_desc_r:
+                sel_desc_r = st.text_input("Observação (opcional)", key="desc_receita", placeholder=f"Ex: Aluguel ref. março/2026")
+            
+            submit_rec = st.form_submit_button("Registrar Receita")
+            
+            if submit_rec:
+                cpf_cliente = None
+                if sel_locatario != "(Sem vínculo)" and sel_locatario in locatario_options:
+                    cpf_cliente = locatario_options[sel_locatario][2]  # CPF
+                
+                placa_r = sel_placa_r if sel_placa_r != "Geral" else None
+                
+                db.add_transaction(
+                    origem=sel_origem_r,
+                    tipo="entrada",
+                    valor=sel_valor_r,
+                    data=sel_data_r.strftime("%Y-%m-%d"),
+                    status=sel_status_r,
+                    cpf_cliente=cpf_cliente,
+                    placa_moto=placa_r
+                )
+                st.success(f"Receita de {categoria_rec} — R$ {sel_valor_r:.2f} registrada com sucesso!")
+                st.rerun()
+        
+        st.markdown("---")
+        st.subheader("Histórico de Receitas")
+        
+        all_txs = db.get_transactions()
+        all_receitas = [tx for tx in all_txs if tx[2] in ('entrada', 'entrada_liquida')]
+        
+        if not all_receitas:
+            st.info("Nenhuma receita registrada ainda.")
+        else:
+            df_rec = pd.DataFrame(all_receitas, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
+            df_rec["Data"] = pd.to_datetime(df_rec["Data"])
+            hoje = datetime.date.today()
+            
+            _render_financial_history(df_rec, hoje, "receitas")
     
-    if not all_despesas:
-        st.info("Nenhuma despesa registrada ainda.")
-        return
+    # ========== DESPESAS ==========
+    with tab_despesas:
+        st.subheader("Registrar Despesa Manualmente")
+        
+        try:
+            motos_d = db.get_all_motos()
+        except Exception:
+            motos_d = []
+            
+        with st.form("manual_entry_form"):
+            col_cat, col_placa, col_data = st.columns(3)
+            with col_cat:
+                categoria = st.selectbox("Categoria", [
+                    "Royalties", "Contador", "Taxa de aluguel de espaço", "Cooperloc", 
+                    "Fundo de marketing", "Taxa de publicidade", "Licenciamento", 
+                    "IPVA", "Seguros", "Pró-labore"
+                ])
+            with col_placa:
+                sel_placa = st.selectbox("Moto (Placa) [Opcional]", ["Geral/Administrativo"] + motos_d)
+            with col_data:
+                sel_data = st.date_input("Data da Despesa", format="DD/MM/YYYY")
+                
+            col_origem, col_valor, col_status = st.columns(3)
+            with col_origem:
+                sel_origem = st.selectbox("Conta de Origem", ["Inter", "ASAAS", "Outros"])
+            with col_valor:
+                sel_valor = st.number_input("Valor (R$)", min_value=0.01, step=10.0, format="%.2f")
+            with col_status:
+                sel_status = st.selectbox("Status", ["pago", "pendente"], key="status_despesa")
+                
+            submit_btn = st.form_submit_button("Registrar Despesa")
+            
+            if submit_btn:
+                db.add_transaction(
+                    origem=sel_origem,
+                    tipo="saida",
+                    valor=sel_valor,
+                    data=sel_data.strftime("%Y-%m-%d"),
+                    status=sel_status,
+                    placa_moto=sel_placa if sel_placa != "Geral/Administrativo" else None
+                )
+                st.success(f"Despesa de {categoria} registrada com sucesso!")
+                st.rerun()
+                    
+        st.markdown("---")
+        st.subheader("Histórico de Despesas")
 
-    if all_despesas:
-        df = pd.DataFrame(all_despesas, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
-        if not df.empty:
+        all_txs_d = db.get_transactions()
+        all_despesas = [tx for tx in all_txs_d if tx[2] == 'saida']
+        
+        if not all_despesas:
+            st.info("Nenhuma despesa registrada ainda.")
+        else:
+            df = pd.DataFrame(all_despesas, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
             df["Data"] = pd.to_datetime(df["Data"])
-    hoje = datetime.date.today()
-    
+            hoje = datetime.date.today()
+            
+            _render_financial_history(df, hoje, "despesas")
+
+
+def _render_financial_history(df, hoje, prefix):
+    """Shared period filter + table renderer for both Receitas and Despesas."""
     opcoes_periodo = [
         "Mês Atual",
         "Últimos 7 dias",
@@ -989,18 +1071,18 @@ def despesas_tab():
         "Busca Personalizada"
     ]
     
-    with st.form("despesas_form"):
+    with st.form(f"{prefix}_filter_form"):
         c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
         with c1:
-            periodo_selecionado = st.selectbox("Período Rápido", opcoes_periodo)
+            periodo_selecionado = st.selectbox("Período Rápido", opcoes_periodo, key=f"periodo_{prefix}")
         with c2:
-            custom_start = st.date_input("Início (Personalizada)", value=hoje.replace(day=1), format="DD/MM/YYYY")
+            custom_start = st.date_input("Início (Personalizada)", value=hoje.replace(day=1), format="DD/MM/YYYY", key=f"cs_{prefix}")
         with c3:
-            custom_end = st.date_input("Fim (Personalizada)", value=hoje, format="DD/MM/YYYY")
+            custom_end = st.date_input("Fim (Personalizada)", value=hoje, format="DD/MM/YYYY", key=f"ce_{prefix}")
         with c4:
             st.write("")
             st.write("")
-            submit_despesas = st.form_submit_button("Ir", use_container_width=True)
+            st.form_submit_button("Ir", use_container_width=True)
         
     if periodo_selecionado == "Últimos 7 dias":
         start_date = hoje - datetime.timedelta(days=7)
@@ -1024,17 +1106,20 @@ def despesas_tab():
         start_date = custom_start
         end_date = custom_end
     else:
-        start_date = hoje.replace(day=1) # Mês Atual
+        start_date = hoje.replace(day=1)
         end_date = hoje
         
     mask = (df["Data"].dt.date >= start_date) & (df["Data"].dt.date <= end_date)
     filtered_df = df.loc[mask].copy()
     
-    st.metric("Total de Despesas no Período", format_currency(filtered_df['Valor'].sum()))
+    label = "Total de Receitas" if prefix == "receitas" else "Total de Despesas"
+    st.metric(f"{label} no Período", format_currency(filtered_df['Valor'].sum()))
     
-    filtered_df["Valor"] = filtered_df["Valor"].apply(format_currency)
+    show_df = filtered_df.copy()
+    show_df["Data"] = show_df["Data"].dt.strftime("%d/%m/%Y")
+    show_df["Valor"] = show_df["Valor"].apply(format_currency)
     st.dataframe(
-        filtered_df.style.set_properties(subset=['Valor'], **{'text-align': 'right', 'padding-right': '15px'}), 
+        show_df, 
         use_container_width=True, 
         hide_index=True
     )
@@ -1230,8 +1315,55 @@ def dados_contador_tab():
                 if inter_error:
                     st.error(f"Erro ao baixar extratos do Banco Inter: {inter_error}")
                 else:
+                    # 2. Generate Client Payment CSV for NF issuance
+                    clientes_csv_bytes = None
+                    try:
+                        import io, csv
+                        all_txs = db.get_transactions()
+                        # Filter: type entrada/entrada_liquida, recebido, in the selected month
+                        receitas_mes = []
+                        for tx in all_txs:
+                            tx_id, tx_orig, tx_tipo, tx_valor, tx_data, tx_status, tx_cpf, tx_placa = tx
+                            if tx_tipo in ("entrada", "entrada_liquida") and tx_status in ("recebido", "pago"):
+                                tx_date = pd.to_datetime(tx_data)
+                                if tx_date.month == int(month_str) and tx_date.year == int(year_str) and tx_cpf:
+                                    receitas_mes.append(tx)
+                        
+                        if receitas_mes:
+                            # Group by CPF
+                            cpf_totals = {}
+                            for tx in receitas_mes:
+                                cpf = tx[6]
+                                valor = float(tx[3])
+                                if cpf not in cpf_totals:
+                                    cpf_totals[cpf] = {"total": 0.0, "qtd": 0}
+                                cpf_totals[cpf]["total"] += valor
+                                cpf_totals[cpf]["qtd"] += 1
+                            
+                            # Enrich with locatário data
+                            locatarios = db.get_locatarios_list()
+                            cpf_to_name = {l[2]: l[1] for l in locatarios}
+                            cpf_to_tel = {l[2]: l[3] for l in locatarios}
+                            
+                            output = io.StringIO()
+                            writer = csv.writer(output)
+                            writer.writerow(["Nome", "CPF", "Telefone", "Qtd Recebimentos", "Total Recebido (R$)"])
+                            for cpf, info in cpf_totals.items():
+                                nome = cpf_to_name.get(cpf, "Não cadastrado")
+                                tel = cpf_to_tel.get(cpf, "")
+                                writer.writerow([nome, cpf, tel, info["qtd"], f"{info['total']:.2f}"])
+                            
+                            clientes_csv_bytes = output.getvalue().encode("utf-8")
+                            st.success(f"CSV de clientes gerado: {len(cpf_totals)} clientes com recebimentos no mês.")
+                    except Exception as e:
+                        st.warning(f"Não foi possível gerar o CSV de clientes: {e}")
+                    
                     # 3. Send Email
-                    success, msg = send_accountant_email(contador_email, mes_selecionado, ofx_b64=ofx_b64, pdf_b64=pdf_b64)
+                    success, msg = send_accountant_email(
+                        contador_email, mes_selecionado, 
+                        ofx_b64=ofx_b64, pdf_b64=pdf_b64,
+                        clientes_csv_bytes=clientes_csv_bytes
+                    )
                     
                     if success:
                         db.record_accountant_export(mes_selecionado, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "sucesso", st.session_state.user_name)
@@ -1701,7 +1833,7 @@ def main():
             "Inter",
             "Motos",
             "Locatários",
-            "Despesas"
+            "Receitas e Despesas"
         ]
         
         # Restrict Configurações only to dansorrel (Daniel Sorrentino)
@@ -1732,8 +1864,8 @@ def main():
             motos_ui_tab()
         elif selection == "Locatários":
             locatarios_ui_tab()
-        elif selection == "Despesas":
-            despesas_tab()
+        elif selection == "Receitas e Despesas":
+            receitas_despesas_tab()
         elif selection == "Configurações":
             config_ui_tab()
 

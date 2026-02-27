@@ -5,10 +5,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def send_accountant_email(to_email, mes_referencia, ofx_b64=None, pdf_b64=None):
+def send_accountant_email(to_email, mes_referencia, ofx_b64=None, pdf_b64=None, clientes_csv_bytes=None):
     """
     Sends an email with the Inter OFX and Inter PDF attachments to the accountant.
+    Optionally includes a CSV with client payment data for invoice issuance (NF).
     Expects base64 encoded strings for OFX and PDF from Banco Inter API.
+    clientes_csv_bytes: raw bytes of a CSV file with client payment data.
     """
     smtp_server = os.getenv("SMTP_SERVER")
     smtp_port = os.getenv("SMTP_PORT", 587)
@@ -20,11 +22,14 @@ def send_accountant_email(to_email, mes_referencia, ofx_b64=None, pdf_b64=None):
         return True, "Email simulado com sucesso (credenciais SMTP ausentes)."
 
     msg = EmailMessage()
-    msg['Subject'] = f"Relatório Financeiro Locamotos - Banco Inter - {mes_referencia}"
+    msg['Subject'] = f"Relatório Financeiro Locamotos - {mes_referencia}"
     msg['From'] = smtp_user
     msg['To'] = to_email
     
     body = f"Olá,\n\nSegue em anexo os relatórios financeiros consolidados referentes ao mês {mes_referencia}.\n\nAnexos:\n- Extrato Oficial Banco Inter (PDF)\n- Histórico de Transações Banco Inter (OFX)"
+    
+    if clientes_csv_bytes:
+        body += "\n- Relatório de Clientes com Recebimentos no Mês (CSV) — para emissão de Notas Fiscais"
          
     body += "\n\nAtenciosamente,\nLocamotos."
     
@@ -47,13 +52,17 @@ def send_accountant_email(to_email, mes_referencia, ofx_b64=None, pdf_b64=None):
             msg.add_attachment(pdf_bytes, maintype='application', subtype='pdf', filename=f"extrato_inter_{mes_referencia}.pdf")
         except Exception as e:
             print(f"Error decoding PDF: {e}")
+    
+    # Attach Clients CSV for NF issuance
+    if clientes_csv_bytes:
+        msg.add_attachment(clientes_csv_bytes, maintype='text', subtype='csv', filename=f"clientes_recebimentos_{mes_referencia}.csv")
             
     try:
         with smtplib.SMTP(smtp_server, int(smtp_port)) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
-        return True, "Email com extratos do Inter enviado com sucesso."
+        return True, "Email com extratos e dados de clientes enviado com sucesso."
     except Exception as e:
         return False, f"Erro ao enviar email: {str(e)}"
 
