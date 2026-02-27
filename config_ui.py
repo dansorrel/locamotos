@@ -410,58 +410,55 @@ def inter_tab():
             if transacoes_inter:
                 df_inter = pd.DataFrame(transacoes_inter)
                 
-                # Dynamically find any date columns to ensure we catch whatever the API returns
-                date_columns = [col for col in df_inter.columns if "data" in col.lower() or "date" in col.lower()]
-                for dc in date_columns:
-                    try:
-                        df_inter[dc] = pd.to_datetime(df_inter[dc]).dt.strftime("%d/%m/%Y")
-                    except:
-                        pass
-                
-                # Build columns to show, prioritizing the first found date column
-                cols_to_show = []
-                # First try the specific ones asked by user, otherwise fallback to any date column
+                # Try to parse dates to sort by newest first
+                date_col = None
                 if "dataLancamento" in df_inter.columns:
-                    cols_to_show.append("dataLancamento")
+                    date_col = "dataLancamento"
                 elif "dataTransacao" in df_inter.columns:
-                    cols_to_show.append("dataTransacao")
+                    date_col = "dataTransacao"
                 elif "dataInclusao" in df_inter.columns:
-                    cols_to_show.append("dataInclusao")
-                elif date_columns:
-                    cols_to_show.append(date_columns[0])
-                    
-                # Add the rest of the standard columns
-                for c in ["tipoTransacao", "valor", "descricao"]:
-                    if c in df_inter.columns:
-                        cols_to_show.append(c)
-                if cols_to_show:
-                    if "valor" in cols_to_show:
-                        st.dataframe(
-                            df_inter[cols_to_show],
-                            use_container_width=True,
-                            column_config={
-                                "valor": st.column_config.NumberColumn(
-                                    "Valor",
-                                    format="R$ %.2f"
-                                )
-                            }
-                        )
-                    else:
-                        st.dataframe(
-                            df_inter[cols_to_show],
-                            use_container_width=True
-                        )
+                    date_col = "dataInclusao"
                 else:
+                    date_columns = [col for col in df_inter.columns if "data" in col.lower() or "date" in col.lower()]
+                    if date_columns:
+                        date_col = date_columns[0]
+                
+                if date_col:
+                    # Parse to real datetime for sorting, sort descending
+                    df_inter["_dt_sort"] = pd.to_datetime(df_inter[date_col], errors="coerce")
+                    df_inter = df_inter.sort_values(by="_dt_sort", ascending=False)
+                    # Now format the visible date column nicely
+                    df_inter[date_col] = df_inter["_dt_sort"].dt.strftime("%d/%m/%Y")
+                
+                # Build columns to show and rename them
+                cols_to_show = {}
+                if date_col:
+                    cols_to_show[date_col] = "Data"
+                
+                if "tipoTransacao" in df_inter.columns:
+                    cols_to_show["tipoTransacao"] = "Tipo"
+                if "valor" in df_inter.columns:
+                    cols_to_show["valor"] = "Valor"
+                if "descricao" in df_inter.columns:
+                    cols_to_show["descricao"] = "Descrição"
+                elif "titulo" in df_inter.columns:
+                    cols_to_show["titulo"] = "Descrição"
+                
+                if cols_to_show:
+                    df_display = df_inter[list(cols_to_show.keys())].rename(columns=cols_to_show)
                     st.dataframe(
-                        df_inter,
+                        df_display,
                         use_container_width=True,
+                        hide_index=True,
                         column_config={
-                            "valor": st.column_config.NumberColumn(
+                            "Valor": st.column_config.NumberColumn(
                                 "Valor",
                                 format="R$ %.2f"
                             )
-                        } if "valor" in df_inter.columns else None
+                        } if "Valor" in df_display.columns else None
                     )
+                else:
+                    st.dataframe(df_inter, use_container_width=True, hide_index=True)
             else:
                 st.info("Nenhuma transação encontrada no período.")
 
