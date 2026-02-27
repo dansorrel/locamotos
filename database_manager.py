@@ -149,6 +149,16 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def update_moto_status(self, placa, status):
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("UPDATE motos SET disponibilidade = %s WHERE placa = %s", (status, placa))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
     def sync_moto_association(self, placa, locatario_nome, move_to_status="Alugado"):
         """
         Links a moto to a locatario and updates both tables.
