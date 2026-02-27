@@ -1071,51 +1071,62 @@ def receitas_despesas_tab():
             # Display without the ID column
             _render_financial_history(df_rec.drop(columns=["ID"], errors="ignore"), hoje, "receitas")
         
-        # ========== EDITAR ENTRADAS MANUAIS ==========
+        # ========== EDITAR ENTRADA MANUAL (compacto) ==========
         if all_receitas_local:
             st.markdown("---")
-            st.subheader("✏️ Editar Entradas Manuais")
-            
+            # Build options for selectbox
+            edit_options = {}
             for tx in all_receitas_local:
                 tx_id, tx_orig, tx_tipo, tx_valor, tx_data, tx_status, tx_cpf, tx_placa = tx
                 cliente_nome = cpf_to_nome.get(tx_cpf, tx_cpf) if tx_cpf else "Sem vínculo"
                 data_fmt = pd.to_datetime(tx_data).strftime("%d/%m/%Y") if tx_data else "—"
+                status_label = tx_status if tx_status else "recebido"
+                label = f"#{tx_id} — {cliente_nome} — R$ {float(tx_valor):.2f} — {data_fmt} — {status_label}"
+                edit_options[label] = tx
+            
+            selected_label = st.selectbox("✏️ Editar entrada manual:", ["(Nenhuma)"] + list(edit_options.keys()), key="sel_edit_receita")
+            
+            if selected_label != "(Nenhuma)" and selected_label in edit_options:
+                tx = edit_options[selected_label]
+                tx_id, tx_orig, tx_tipo, tx_valor, tx_data, tx_status, tx_cpf, tx_placa = tx
                 
-                with st.expander(f"#{tx_id} — {cliente_nome} — R$ {float(tx_valor):.2f} — {data_fmt} — {tx_status}"):
-                    with st.form(f"edit_tx_{tx_id}"):
-                        e_c1, e_c2 = st.columns(2)
-                        with e_c1:
-                            edit_valor = st.number_input("Valor (R$)", value=float(tx_valor), min_value=0.01, step=10.0, format="%.2f", key=f"ev_{tx_id}")
-                            edit_data = st.date_input("Data", value=pd.to_datetime(tx_data).date() if tx_data else datetime.date.today(), format="DD/MM/YYYY", key=f"ed_{tx_id}")
-                        with e_c2:
-                            edit_status = st.selectbox("Status", ["recebido", "pendente"], index=["recebido", "pendente"].index(tx_status) if tx_status in ["recebido", "pendente"] else 0, key=f"es_{tx_id}")
-                            loc_edit_names = ["(Sem vínculo)"] + list(locatario_options.keys())
-                            current_loc_idx = 0
-                            if tx_cpf and tx_cpf in cpf_to_nome:
-                                try:
-                                    current_loc_idx = loc_edit_names.index(cpf_to_nome[tx_cpf])
-                                except ValueError:
-                                    current_loc_idx = 0
-                            edit_loc = st.selectbox("Locatário", loc_edit_names, index=current_loc_idx, key=f"el_{tx_id}")
-                        
-                        e_c3, e_c4 = st.columns(2)
-                        with e_c3:
-                            if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
-                                new_cpf = None
-                                if edit_loc != "(Sem vínculo)" and edit_loc in locatario_options:
-                                    new_cpf = locatario_options[edit_loc][2]
-                                db.update_transaction(
-                                    tx_id, "Manual", edit_valor, 
-                                    edit_data.strftime("%Y-%m-%d"), edit_status,
-                                    cpf_cliente=new_cpf, placa_moto=tx_placa
-                                )
-                                st.success("Entrada atualizada com sucesso!")
-                                st.rerun()
-                        with e_c4:
-                            if st.form_submit_button("🗑️ Excluir", use_container_width=True):
-                                db.delete_transaction(tx_id)
-                                st.success("Entrada excluída!")
-                                st.rerun()
+                with st.form(f"edit_tx_{tx_id}"):
+                    e_c1, e_c2, e_c3, e_c4 = st.columns(4)
+                    with e_c1:
+                        edit_valor = st.number_input("Valor", value=float(tx_valor), min_value=0.01, step=10.0, format="%.2f", key=f"ev_{tx_id}")
+                    with e_c2:
+                        edit_data = st.date_input("Data", value=pd.to_datetime(tx_data).date() if tx_data else datetime.date.today(), format="DD/MM/YYYY", key=f"ed_{tx_id}")
+                    with e_c3:
+                        edit_status = st.selectbox("Status", ["recebido", "pendente"], index=["recebido", "pendente"].index(tx_status) if tx_status in ["recebido", "pendente"] else 0, key=f"es_{tx_id}")
+                    with e_c4:
+                        loc_edit_names = ["(Sem vínculo)"] + list(locatario_options.keys())
+                        current_loc_idx = 0
+                        if tx_cpf and tx_cpf in cpf_to_nome:
+                            try:
+                                current_loc_idx = loc_edit_names.index(cpf_to_nome[tx_cpf])
+                            except ValueError:
+                                current_loc_idx = 0
+                        edit_loc = st.selectbox("Locatário", loc_edit_names, index=current_loc_idx, key=f"el_{tx_id}")
+                    
+                    btn_c1, btn_c2 = st.columns(2)
+                    with btn_c1:
+                        if st.form_submit_button("💾 Salvar", use_container_width=True):
+                            new_cpf = None
+                            if edit_loc != "(Sem vínculo)" and edit_loc in locatario_options:
+                                new_cpf = locatario_options[edit_loc][2]
+                            db.update_transaction(
+                                tx_id, "Manual", edit_valor,
+                                edit_data.strftime("%Y-%m-%d"), edit_status,
+                                cpf_cliente=new_cpf, placa_moto=tx_placa
+                            )
+                            st.success("Atualizado!")
+                            st.rerun()
+                    with btn_c2:
+                        if st.form_submit_button("🗑️ Excluir", use_container_width=True):
+                            db.delete_transaction(tx_id)
+                            st.success("Excluído!")
+                            st.rerun()
+
     
     # ========== DESPESAS ==========
     with tab_despesas:
