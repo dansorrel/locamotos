@@ -940,7 +940,7 @@ def receitas_despesas_tab():
             col_cat, col_loc = st.columns(2)
             with col_cat:
                 categoria_rec = st.selectbox("Tipo de Receita", [
-                    "Aluguel Mensal", "Caução", "Multa Contratual", "Outros"
+                    "Aluguel", "Caução", "Multa Contratual", "Outros"
                 ])
             with col_loc:
                 loc_names = ["(Sem vínculo)"] + list(locatario_options.keys())
