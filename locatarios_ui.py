@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import datetime
 from database_manager import DatabaseManager
 import base64
 
@@ -63,6 +64,108 @@ def locatarios_tab():
                              st.markdown(href, unsafe_allow_html=True)
                  else:
                      st.write("**Arquivo Anexado da CNH**: Não anexado")
+                 
+                 st.write("---")
+                 
+                 # ========== FINANCEIRO DO PILOTO ==========
+                 with st.expander("💰 Financeiro do Piloto"):
+                     fin_rows = []
+                     
+                     # 1. Manual transactions from DB
+                     all_txs = db.get_transactions()
+                     manual_txs = [tx for tx in all_txs if tx[6] == d_cpf and tx[2] in ('entrada', 'entrada_liquida')]
+                     
+                     for tx in manual_txs:
+                         fin_rows.append({
+                             "id": tx[0],
+                             "origem": "Manual",
+                             "valor": float(tx[3]),
+                             "valor_liquido": float(tx[3]),
+                             "data": str(tx[4]),
+                             "status": tx[5],
+                             "editavel": True
+                         })
+                     
+                     # 2. ASAAS payments for this pilot
+                     try:
+                         from asaas_client import AsaasClient
+                         ac = AsaasClient()
+                         customers = ac.get_customers()
+                         
+                         # Find ASAAS customer(s) matching this CPF
+                         matching_cust_ids = [c["id"] for c in customers if c.get("cpfCnpj", "").replace(".", "").replace("-", "").replace("/", "") == d_cpf.replace(".", "").replace("-", "").replace("/", "")]
+                         
+                         if matching_cust_ids:
+                             h = datetime.date.today()
+                             asaas_start = datetime.date(2025, 1, 1).strftime("%Y-%m-%d")
+                             asaas_end = (h + datetime.timedelta(days=365)).strftime("%Y-%m-%d")
+                             pagamentos = ac.get_all_payments(asaas_start, asaas_end)
+                             
+                             status_map = {
+                                 "RECEIVED": "recebido",
+                                 "CONFIRMED": "recebido",
+                                 "RECEIVED_IN_CASH": "recebido",
+                                 "PENDING": "pendente",
+                                 "OVERDUE": "em atraso",
+                             }
+                             
+                             for pg in pagamentos:
+                                 if pg.get("customer") in matching_cust_ids:
+                                     pg_status = pg.get("status", "")
+                                     if pg_status in status_map:
+                                         data_pg = pg.get("paymentDate") or pg.get("dueDate") or pg.get("dateCreated", "")
+                                         fin_rows.append({
+                                             "id": None,
+                                             "origem": "ASAAS",
+                                             "valor": float(pg.get("value", 0)),
+                                             "valor_liquido": float(pg.get("netValue", pg.get("value", 0))),
+                                             "data": data_pg,
+                                             "status": status_map.get(pg_status, pg_status.lower()),
+                                             "editavel": False
+                                         })
+                     except Exception as e:
+                         st.warning(f"Não foi possível buscar dados do ASAAS: {e}")
+                     
+                     if not fin_rows:
+                         st.info("Nenhum registro financeiro encontrado para este piloto.")
+                     else:
+                         # Summary metrics
+                         total_recebido = sum(r["valor"] for r in fin_rows if r["status"] == "recebido")
+                         total_pendente = sum(r["valor"] for r in fin_rows if r["status"] == "pendente")
+                         total_atraso = sum(r["valor"] for r in fin_rows if r["status"] == "em atraso")
+                         
+                         m1, m2, m3 = st.columns(3)
+                         m1.metric("✅ Recebido", f"R$ {total_recebido:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                         m2.metric("⏳ Pendente", f"R$ {total_pendente:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                         m3.metric("🔴 Em Atraso", f"R$ {total_atraso:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                         
+                         # Build display table
+                         display_rows = []
+                         for r in fin_rows:
+                             data_fmt = pd.to_datetime(r["data"]).strftime("%d/%m/%Y") if r["data"] else "—"
+                             display_rows.append({
+                                 "Origem": r["origem"],
+                                 "Valor Bruto": f"R$ {r['valor']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                                 "Valor Líquido": f"R$ {r['valor_liquido']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                                 "Data": data_fmt,
+                                 "Status": r["status"].upper()
+                             })
+                         
+                         df_fin = pd.DataFrame(display_rows)
+                         st.dataframe(df_fin, use_container_width=True, hide_index=True)
+                         
+                         # Editable manual entries
+                         pendentes_manuais = [r for r in fin_rows if r["editavel"] and r["status"] == "pendente" and r["id"]]
+                         if pendentes_manuais:
+                             st.markdown("#### Marcar como Recebido")
+                             for r in pendentes_manuais:
+                                 data_fmt = pd.to_datetime(r["data"]).strftime("%d/%m/%Y") if r["data"] else "—"
+                                 col_info, col_btn = st.columns([3, 1])
+                                 col_info.write(f"**#{r['id']}** — R$ {r['valor']:.2f} — {data_fmt}")
+                                 if col_btn.button("✅ Recebido", key=f"mark_recv_{d_id}_{r['id']}"):
+                                     db.update_transaction(r["id"], "Manual", r["valor"], r["data"], "recebido", cpf_cliente=d_cpf)
+                                     st.success("Status atualizado para Recebido!")
+                                     st.rerun()
                  
                  st.write("---")
                  with st.expander("📝 Editar Dados do Piloto"):
