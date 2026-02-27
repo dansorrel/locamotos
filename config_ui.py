@@ -498,137 +498,141 @@ def locatarios_ui_tab():
         locatarios_tab()
         
     with tab_financeiro:
-        st.subheader("Cobranças e Valores a Receber (Asaas)")
+        st.subheader("Cobranças, Receitas e Valores por Piloto")
         
+        db_fin = DatabaseManager()
         hoje = datetime.date.today()
-        opcoes_periodo = [
-            "Desde 01/01/2025",
-            "Mês Atual",
-            "Ano Corrente",
-            "Últimos 30 dias",
-            "Últimos 90 dias",
-            "Busca Personalizada"
-        ]
         
-        with st.form("visiun_fin_filter"):
-            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-            with c1:
-                periodo = st.selectbox("Período de Criação", opcoes_periodo)
-            with c2:
-                d_inicio = st.date_input("Início", value=datetime.date(2025, 1, 1))
-            with c3:
-                d_fim = st.date_input("Fim", value=hoje)
-            with c4:
-                st.write("")
-                st.write("")
-                st_visiun_fin = st.form_submit_button("Filtrar")
-                
-        if periodo == "Desde 01/01/2025":
-            start_date = "2025-01-01"
-            end_date = hoje.strftime("%Y-%m-%d")
-        elif periodo == "Mês Atual":
-            start_date = hoje.replace(day=1).strftime("%Y-%m-%d")
-            end_date = hoje.strftime("%Y-%m-%d")
-        elif periodo == "Ano Corrente":
-            start_date = hoje.replace(month=1, day=1).strftime("%Y-%m-%d")
-            end_date = hoje.strftime("%Y-%m-%d")
-        elif periodo == "Últimos 30 dias":
-            start_date = (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-            end_date = hoje.strftime("%Y-%m-%d")
-        elif periodo == "Últimos 90 dias":
-            start_date = (hoje - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
-            end_date = hoje.strftime("%Y-%m-%d")
+        # Load locatarios
+        locatarios_fin = db_fin.get_locatarios_list()
+        if not locatarios_fin:
+            st.info("Nenhum locatário cadastrado.")
         else:
-            start_date = d_inicio.strftime("%Y-%m-%d")
-            end_date = d_fim.strftime("%Y-%m-%d")
-
-        try:
-            from asaas_client import AsaasClient
-            client = AsaasClient()
-            customers = client.get_customers()
-            customer_map = {c.get("id"): c.get("name", "Desconhecido") for c in customers}
+            # Load all DB transactions once
+            all_db_txs = db_fin.get_transactions()
             
-            with st.spinner("Buscando boletos no ASAAS..."):
-                pagamentos = client.get_all_payments(start_date, end_date)
+            # Load ASAAS data once
+            asaas_payments = []
+            asaas_cust_map = {}
+            asaas_cust_cpf_map = {}
+            try:
+                from asaas_client import AsaasClient
+                ac = AsaasClient()
+                customers = ac.get_customers()
+                asaas_cust_map = {c["id"]: c.get("name", "Desconhecido") for c in customers}
+                asaas_cust_cpf_map = {c["id"]: c.get("cpfCnpj", "").replace(".", "").replace("-", "").replace("/", "") for c in customers}
+                
+                asaas_start = datetime.date(2025, 1, 1).strftime("%Y-%m-%d")
+                asaas_end = (hoje + datetime.timedelta(days=365)).strftime("%Y-%m-%d")
+                with st.spinner("Buscando boletos no ASAAS..."):
+                    asaas_payments = ac.get_all_payments(asaas_start, asaas_end)
+            except Exception as e:
+                st.warning(f"Não foi possível buscar dados do ASAAS: {e}")
             
-            if pagamentos:
-                df_pgs = pd.DataFrame(pagamentos)
+            # Reverse map: clean CPF -> list of ASAAS customer_ids
+            cpf_to_cust_ids = {}
+            for cid, cpf in asaas_cust_cpf_map.items():
+                if cpf:
+                    cpf_to_cust_ids.setdefault(cpf, []).append(cid)
+            
+            status_map = {
+                "RECEIVED": "recebido",
+                "CONFIRMED": "recebido",
+                "RECEIVED_IN_CASH": "recebido",
+                "PENDING": "pendente",
+                "OVERDUE": "em atraso",
+            }
+            
+            st.write(f"Exibindo dados financeiros de **{len(locatarios_fin)}** pilotos.")
+            
+            for loc in locatarios_fin:
+                l_id, l_nome, l_cpf, l_tel, l_placa = loc
+                cpf_clean = (l_cpf or "").replace(".", "").replace("-", "").replace("/", "").strip()
                 
-                df_pgs["Valor Cobrado"] = df_pgs.apply(lambda row: 
-                    (row.get("value") or 0.0) + 
-                    (row.get("interestValue") or 0.0) + 
-                    (row.get("fineValue") or 0.0) - 
-                    (row.get("discount", {}).get("value", 0.0) if isinstance(row.get("discount"), dict) else 0.0)
-                    if row.get("status") in ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"] else (row.get("value") or 0.0), axis=1)
+                fin_rows = []
                 
-                df_pgs["Sacado"] = df_pgs.get("customer", "").map(lambda c_id: customer_map.get(c_id, "Desconhecido"))
+                # 1. Manual DB transactions for this pilot
+                for tx in all_db_txs:
+                    tx_cpf_clean = (tx[6] or "").replace(".", "").replace("-", "").replace("/", "").strip()
+                    if tx_cpf_clean and cpf_clean and tx_cpf_clean == cpf_clean:
+                        tipo_label = "Receita" if tx[2] in ('entrada', 'entrada_liquida') else "Despesa"
+                        tx_status = tx[5] if tx[5] else "recebido"
+                        fin_rows.append({
+                            "id": tx[0],
+                            "origem": f"Manual ({tipo_label})",
+                            "valor": float(tx[3]),
+                            "valor_liquido": float(tx[3]),
+                            "data": str(tx[4]) if tx[4] else "",
+                            "status": tx_status,
+                            "editavel": True
+                        })
                 
-                def format_date_safe(date_str):
-                    if not date_str: return ""
-                    return pd.to_datetime(date_str).strftime("%d/%m/%Y")
-                    
-                df_pgs["Vencimento"] = df_pgs.get("dueDate", "").apply(format_date_safe)
-                if "paymentDate" in df_pgs.columns:
-                    df_pgs["Pagamento"] = df_pgs.get("paymentDate", "").apply(format_date_safe)
-                else:
-                    df_pgs["Pagamento"] = ""
+                # 2. ASAAS payments for this pilot
+                matching_cust_ids = cpf_to_cust_ids.get(cpf_clean, [])
+                for pg in asaas_payments:
+                    if pg.get("customer") in matching_cust_ids:
+                        pg_status = pg.get("status", "")
+                        if pg_status in status_map:
+                            data_pg = pg.get("paymentDate") or pg.get("dueDate") or pg.get("dateCreated", "")
+                            fin_rows.append({
+                                "id": None,
+                                "origem": "ASAAS",
+                                "valor": float(pg.get("value", 0)),
+                                "valor_liquido": float(pg.get("netValue", pg.get("value", 0))),
+                                "data": data_pg,
+                                "status": status_map.get(pg_status, pg_status.lower()),
+                                "editavel": False
+                            })
                 
-                status_map = {
-                    "PENDING": "🟡 Pendente",
-                    "RECEIVED": "🟢 Recebido",
-                    "CONFIRMED": "🟢 Confirmado",
-                    "OVERDUE": "🔴 Vencido",
-                    "REFUNDED": "🔄 Estornado",
-                    "RECEIVED_IN_CASH": "💵 Recebido Físico"
-                }
-                df_pgs["Status"] = df_pgs.get("status", "").map(lambda s: status_map.get(s, s))
+                # Compute totals
+                total_recebido = sum(r["valor"] for r in fin_rows if r["status"] == "recebido")
+                total_pendente = sum(r["valor"] for r in fin_rows if r["status"] == "pendente")
+                total_atraso = sum(r["valor"] for r in fin_rows if r["status"] == "em atraso")
                 
-                grouped = df_pgs.groupby("Sacado")
+                placa_str = f"🏍️ {l_placa}" if l_placa else "Sem moto"
                 
-                st.write(f"Encontrados registros para **{len(grouped)}** pilotos no período.")
-                
-                for sacado, group in sorted(grouped):
-                    pagos_mask = group.get("status", "").isin(["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"])
-                    pagos_df = group[pagos_mask]
-                    pendentes_df = group[~pagos_mask & (group.get("status", "") != "REFUNDED")]
-                    
-                    total_pago = pagos_df["Valor Cobrado"].sum()
-                    total_pendente = pendentes_df["Valor Cobrado"].sum()
-                    
-                    with st.expander(f"👤 {sacado} | Pago: R$ {total_pago:,.2f} | A Receber: R$ {total_pendente:,.2f}"):
-                        pc1, pc2 = st.columns(2)
+                with st.expander(f"👤 {l_nome} — {placa_str} | ✅ R$ {total_recebido:,.2f} | ⏳ R$ {total_pendente:,.2f} | 🔴 R$ {total_atraso:,.2f}"):
+                    if not fin_rows:
+                        st.info("Nenhum registro financeiro para este piloto.")
+                    else:
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("✅ Recebido", f"R$ {total_recebido:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                        m2.metric("⏳ Pendente", f"R$ {total_pendente:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                        m3.metric("🔴 Em Atraso", f"R$ {total_atraso:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
                         
-                        with pc1:
-                            st.markdown("##### ✅ Pagos")
-                            if not pagos_df.empty:
-                                show_pagos = pagos_df[["Pagamento", "Vencimento", "Valor Cobrado", "Status"]].copy()
-                                st.dataframe(
-                                    show_pagos, 
-                                    hide_index=True, 
-                                    use_container_width=True,
-                                    column_config={"Valor Cobrado": st.column_config.NumberColumn("Valor Cobrado", format="R$ %.2f")}
-                                )
-                            else:
-                                st.info("Nenhum boleto pago no período.")
-                                
-                        with pc2:
-                            st.markdown("##### ⏳ A Receber / Vencidos")
-                            if not pendentes_df.empty:
-                                show_pendentes = pendentes_df[["Vencimento", "Valor Cobrado", "Status"]].copy()
-                                show_pendentes = show_pendentes.sort_values(by="Vencimento")
-                                st.dataframe(
-                                    show_pendentes, 
-                                    hide_index=True, 
-                                    use_container_width=True,
-                                    column_config={"Valor Cobrado": st.column_config.NumberColumn("Valor Cobrado", format="R$ %.2f")}
-                                )
-                            else:
-                                st.info("Nenhum boleto pendente no período.")
-            else:
-                st.info("Nenhum boleto gerado no Asaas neste período.")
-                
-        except Exception as e:
-            st.error(f"Erro ao carregar os dados financeiros do Asaas: {e}")
+                        # Build display table
+                        display_rows = []
+                        for r in fin_rows:
+                            try:
+                                data_fmt = pd.to_datetime(r["data"]).strftime("%d/%m/%Y") if r["data"] else "—"
+                            except Exception:
+                                data_fmt = r["data"] or "—"
+                            display_rows.append({
+                                "Origem": r["origem"],
+                                "Valor Bruto": f"R$ {r['valor']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                                "Valor Líquido": f"R$ {r['valor_liquido']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                                "Data": data_fmt,
+                                "Status": r["status"].upper()
+                            })
+                        
+                        df_fin = pd.DataFrame(display_rows)
+                        st.dataframe(df_fin, use_container_width=True, hide_index=True)
+                        
+                        # Mark pending manual entries as received
+                        pendentes = [r for r in fin_rows if r["editavel"] and r["status"] == "pendente" and r["id"]]
+                        if pendentes:
+                            st.markdown("#### Marcar como Recebido")
+                            for r in pendentes:
+                                try:
+                                    data_fmt = pd.to_datetime(r["data"]).strftime("%d/%m/%Y") if r["data"] else "—"
+                                except Exception:
+                                    data_fmt = "—"
+                                ci, cb = st.columns([3, 1])
+                                ci.write(f"**#{r['id']}** — R$ {r['valor']:.2f} — {data_fmt}")
+                                if cb.button("✅ Recebido", key=f"fin_recv_{l_id}_{r['id']}"):
+                                    db_fin.update_transaction(r["id"], "Manual", r["valor"], r["data"], "recebido", cpf_cliente=l_cpf)
+                                    st.success("Atualizado para Recebido!")
+                                    st.rerun()
 
 def asaas_tab():
     st.header("💳 ASAAS")
@@ -997,14 +1001,16 @@ def receitas_despesas_tab():
         for tx in all_receitas_local:
             cliente_nome = cpf_to_nome.get(tx[6], tx[6]) if tx[6] else "—"
             placa = tx[7] or cpf_to_placa.get(tx[6], "—") if tx[6] else (tx[7] or "—")
+            tx_status = tx[5] if tx[5] else "recebido"  # Legacy entries may have empty status
+            tx_origem = tx[1] if tx[1] else "Manual"
             rows.append({
                 "ID": tx[0],
-                "Origem": "Manual" if tx[1] != "ASAAS" else tx[1],
+                "Origem": tx_origem if tx_origem == "ASAAS" else "Manual",
                 "Cliente": cliente_nome,
                 "Valor Bruto": float(tx[3]),
                 "Valor Líquido": float(tx[3]),
                 "Data": tx[4],
-                "Status": tx[5],
+                "Status": tx_status,
                 "Placa": placa
             })
             manual_tx_ids.append(tx[0])
