@@ -986,14 +986,67 @@ def receitas_despesas_tab():
         st.markdown("---")
         st.subheader("Histórico de Receitas")
         
+        # 1. Local manual receipts
         all_txs = db.get_transactions()
-        all_receitas = [tx for tx in all_txs if tx[2] in ('entrada', 'entrada_liquida')]
+        all_receitas_local = [tx for tx in all_txs if tx[2] in ('entrada', 'entrada_liquida')]
         
-        if not all_receitas:
+        rows = []
+        for tx in all_receitas_local:
+            rows.append({
+                "Origem": tx[1],
+                "Cliente": tx[6] or "—",
+                "Valor Bruto": float(tx[3]),
+                "Valor Líquido": float(tx[3]),
+                "Data": tx[4],
+                "Status": tx[5],
+                "Placa": tx[7] or "—"
+            })
+        
+        # 2. ASAAS paid boletos (automatic)
+        try:
+            from asaas_client import AsaasClient
+            ac = AsaasClient()
+            
+            # Fetch customers for name mapping
+            customers = ac.get_customers()
+            cust_map = {c["id"]: c.get("name", c.get("cpfCnpj", "Desconhecido")) for c in customers}
+            
+            # Fetch all payments from the beginning of the year (or wider range)
+            h = datetime.date.today()
+            asaas_start = datetime.date(2025, 1, 1).strftime("%Y-%m-%d")
+            asaas_end = (h + datetime.timedelta(days=365)).strftime("%Y-%m-%d")
+            pagamentos = ac.get_all_payments(asaas_start, asaas_end)
+            
+            status_map = {
+                "RECEIVED": "recebido",
+                "CONFIRMED": "recebido",
+                "RECEIVED_IN_CASH": "recebido",
+                "PENDING": "pendente",
+                "OVERDUE": "vencido",
+            }
+            
+            for pg in pagamentos:
+                pg_status = pg.get("status", "")
+                if pg_status in ("RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH", "PENDING", "OVERDUE"):
+                    cliente_nome = cust_map.get(pg.get("customer"), pg.get("customer", "—"))
+                    data_pg = pg.get("paymentDate") or pg.get("dueDate") or pg.get("dateCreated", "")
+                    rows.append({
+                        "Origem": "ASAAS",
+                        "Cliente": cliente_nome,
+                        "Valor Bruto": float(pg.get("value", 0)),
+                        "Valor Líquido": float(pg.get("netValue", pg.get("value", 0))),
+                        "Data": data_pg,
+                        "Status": status_map.get(pg_status, pg_status.lower()),
+                        "Placa": "—"
+                    })
+        except Exception as e:
+            st.warning(f"Não foi possível buscar boletos do ASAAS: {e}")
+        
+        if not rows:
             st.info("Nenhuma receita registrada ainda.")
         else:
-            df_rec = pd.DataFrame(all_receitas, columns=["ID", "Origem", "Tipo", "Valor", "Data", "Status", "CPF/ID", "Placa da Moto"])
-            df_rec["Data"] = pd.to_datetime(df_rec["Data"])
+            df_rec = pd.DataFrame(rows)
+            df_rec["Data"] = pd.to_datetime(df_rec["Data"], errors="coerce")
             hoje = datetime.date.today()
             
             _render_financial_history(df_rec, hoje, "receitas")
@@ -1112,12 +1165,26 @@ def _render_financial_history(df, hoje, prefix):
     mask = (df["Data"].dt.date >= start_date) & (df["Data"].dt.date <= end_date)
     filtered_df = df.loc[mask].copy()
     
-    label = "Total de Receitas" if prefix == "receitas" else "Total de Despesas"
-    st.metric(f"{label} no Período", format_currency(filtered_df['Valor'].sum()))
+    # Determine which value column to use for the total
+    if "Valor Bruto" in filtered_df.columns:
+        valor_col = "Valor Bruto"
+    else:
+        valor_col = "Valor"
+    
+    label = "Total de Receitas (Bruto)" if prefix == "receitas" else "Total de Despesas"
+    st.metric(f"{label} no Período", format_currency(filtered_df[valor_col].sum()))
+    
+    if prefix == "receitas" and "Valor Líquido" in filtered_df.columns:
+        st.metric("Total Líquido no Período", format_currency(filtered_df["Valor Líquido"].sum()))
     
     show_df = filtered_df.copy()
     show_df["Data"] = show_df["Data"].dt.strftime("%d/%m/%Y")
-    show_df["Valor"] = show_df["Valor"].apply(format_currency)
+    
+    # Format currency columns
+    for col in ["Valor", "Valor Bruto", "Valor Líquido"]:
+        if col in show_df.columns:
+            show_df[col] = show_df[col].apply(format_currency)
+    
     st.dataframe(
         show_df, 
         use_container_width=True, 
