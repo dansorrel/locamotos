@@ -73,16 +73,24 @@ def locatarios_tab():
                      
                      # 1. Manual transactions from DB
                      all_txs = db.get_transactions()
-                     manual_txs = [tx for tx in all_txs if tx[6] == d_cpf and tx[2] in ('entrada', 'entrada_liquida')]
+                     # Normalize CPF for comparison
+                     pilot_cpf_clean = (d_cpf or "").replace(".", "").replace("-", "").replace("/", "").strip()
+                     manual_txs = []
+                     for tx in all_txs:
+                         tx_cpf_clean = (tx[6] or "").replace(".", "").replace("-", "").replace("/", "").strip()
+                         if tx_cpf_clean and pilot_cpf_clean and tx_cpf_clean == pilot_cpf_clean:
+                             manual_txs.append(tx)
                      
                      for tx in manual_txs:
+                         tipo_label = "Receita" if tx[2] in ('entrada', 'entrada_liquida') else "Despesa"
                          fin_rows.append({
                              "id": tx[0],
-                             "origem": "Manual",
+                             "origem": f"Manual ({tipo_label})",
                              "valor": float(tx[3]),
                              "valor_liquido": float(tx[3]),
                              "data": str(tx[4]),
                              "status": tx[5],
+                             "tipo": tx[2],
                              "editavel": True
                          })
                      
@@ -121,6 +129,7 @@ def locatarios_tab():
                                              "valor_liquido": float(pg.get("netValue", pg.get("value", 0))),
                                              "data": data_pg,
                                              "status": status_map.get(pg_status, pg_status.lower()),
+                                             "tipo": "entrada",
                                              "editavel": False
                                          })
                      except Exception as e:
