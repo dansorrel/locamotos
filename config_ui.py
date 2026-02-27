@@ -323,6 +323,10 @@ def dashboard_tab():
         'Despesas': resumo_mes['Despesas']
     }).set_index('Mês')
     st.bar_chart(chart_data)
+    
+    st.write("")
+    st.markdown("### 📊 5. DRE — Demonstrativo de Resultados")
+    _render_dre(db, embedded=True)
 
 def inter_tab():
     st.header("🏦 Posição Banco Inter")
@@ -915,6 +919,170 @@ def receitas_tab():
             )
         }
     )
+def _render_dre(db, embedded=False):
+    """
+    Renders a DRE (Demonstrativo de Resultados do Exercício).
+    If embedded=True, renders a compact version for the dashboard.
+    """
+    hoje = datetime.date.today()
+    
+    if not embedded:
+        st.subheader("📊 DRE — Demonstrativo de Resultados")
+    
+    # Period selector
+    opcoes = ["Mês Atual", "Mês Anterior", "Trimestre Atual", "Ano Corrente", "Desde 01/01/2025", "Busca Personalizada"]
+    
+    if embedded:
+        periodo = st.selectbox("Período do DRE", opcoes, key="dre_dash_per")
+    else:
+        with st.form("dre_periodo_form"):
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            with c1:
+                periodo = st.selectbox("Período", opcoes, key="dre_per")
+            with c2:
+                custom_s = st.date_input("Início", value=hoje.replace(day=1), format="DD/MM/YYYY", key="dre_cs")
+            with c3:
+                custom_e = st.date_input("Fim", value=hoje, format="DD/MM/YYYY", key="dre_ce")
+            with c4:
+                st.write("")
+                st.write("")
+                st.form_submit_button("Gerar", use_container_width=True)
+    
+    import calendar
+    if periodo == "Mês Atual":
+        start_date = hoje.replace(day=1)
+        end_date = hoje
+        periodo_label = hoje.strftime("%B/%Y").capitalize()
+    elif periodo == "Mês Anterior":
+        first_this = hoje.replace(day=1)
+        last_prev = first_this - datetime.timedelta(days=1)
+        start_date = last_prev.replace(day=1)
+        end_date = last_prev
+        periodo_label = last_prev.strftime("%B/%Y").capitalize()
+    elif periodo == "Trimestre Atual":
+        q = (hoje.month - 1) // 3
+        start_date = datetime.date(hoje.year, q * 3 + 1, 1)
+        end_date = hoje
+        periodo_label = f"Q{q+1}/{hoje.year}"
+    elif periodo == "Ano Corrente":
+        start_date = datetime.date(hoje.year, 1, 1)
+        end_date = hoje
+        periodo_label = str(hoje.year)
+    elif periodo == "Desde 01/01/2025":
+        start_date = datetime.date(2025, 1, 1)
+        end_date = hoje
+        periodo_label = "2025 até hoje"
+    else:
+        start_date = custom_s if not embedded else hoje.replace(day=1)
+        end_date = custom_e if not embedded else hoje
+        periodo_label = f"{start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}"
+    
+    # 1. Gather Manual DB transactions in period
+    all_txs = db.get_transactions()
+    
+    receitas_manual_bruto = 0.0
+    despesas_por_cat = {}  # origin -> total
+    
+    for tx in all_txs:
+        tx_data = tx[4]
+        try:
+            tx_date = pd.to_datetime(tx_data).date()
+        except Exception:
+            continue
+        if tx_date < start_date or tx_date > end_date:
+            continue
+        
+        valor = float(tx[3])
+        tipo = tx[2]
+        origem = tx[1] or "Manual"
+        
+        if tipo in ('entrada', 'entrada_liquida'):
+            receitas_manual_bruto += valor
+        elif tipo == 'saida':
+            # Categorize by origin
+            cat = origem if origem else "Outros"
+            despesas_por_cat[cat] = despesas_por_cat.get(cat, 0.0) + valor
+    
+    # 2. Gather ASAAS data
+    receitas_asaas_bruto = 0.0
+    receitas_asaas_liquido = 0.0
+    try:
+        from asaas_client import AsaasClient
+        ac = AsaasClient()
+        asaas_start = start_date.strftime("%Y-%m-%d")
+        asaas_end = end_date.strftime("%Y-%m-%d")
+        pagamentos = ac.get_all_payments(asaas_start, asaas_end)
+        
+        for pg in pagamentos:
+            pg_status = pg.get("status", "")
+            if pg_status in ("RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"):
+                pay_date_str = pg.get("paymentDate") or pg.get("dueDate") or ""
+                try:
+                    pay_date = pd.to_datetime(pay_date_str).date()
+                except Exception:
+                    continue
+                if start_date <= pay_date <= end_date:
+                    receitas_asaas_bruto += float(pg.get("value", 0))
+                    receitas_asaas_liquido += float(pg.get("netValue", pg.get("value", 0)))
+    except Exception:
+        pass
+    
+    # 3. Compute DRE
+    receita_bruta = receitas_manual_bruto + receitas_asaas_bruto
+    deducoes_asaas = receitas_asaas_bruto - receitas_asaas_liquido
+    receita_liquida = receita_bruta - deducoes_asaas
+    despesas_total = sum(despesas_por_cat.values())
+    resultado_operacional = receita_liquida - despesas_total
+    
+    # 4. Render
+    def fmt(v):
+        prefix = "" if v >= 0 else "-"
+        return f"{prefix}R$ {abs(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    
+    st.markdown(f"**Período: {periodo_label}**")
+    
+    # DRE Table
+    dre_rows = [
+        {"Conta": "RECEITA BRUTA", "Valor": fmt(receita_bruta), "_sort": 1, "_bold": True},
+        {"Conta": "  Receitas Manuais (Aluguel, Caução, etc.)", "Valor": fmt(receitas_manual_bruto), "_sort": 2, "_bold": False},
+        {"Conta": "  Receitas ASAAS (Boletos Recebidos)", "Valor": fmt(receitas_asaas_bruto), "_sort": 3, "_bold": False},
+        {"Conta": "", "Valor": "", "_sort": 4, "_bold": False},
+        {"Conta": "(-) DEDUÇÕES / TAXAS", "Valor": fmt(-deducoes_asaas), "_sort": 5, "_bold": True},
+        {"Conta": "  Taxas ASAAS (Gateway)", "Valor": fmt(-deducoes_asaas), "_sort": 6, "_bold": False},
+        {"Conta": "", "Valor": "", "_sort": 7, "_bold": False},
+        {"Conta": "= RECEITA LÍQUIDA", "Valor": fmt(receita_liquida), "_sort": 8, "_bold": True},
+        {"Conta": "", "Valor": "", "_sort": 9, "_bold": False},
+        {"Conta": "(-) DESPESAS OPERACIONAIS", "Valor": fmt(-despesas_total), "_sort": 10, "_bold": True},
+    ]
+    
+    sort_idx = 11
+    for cat, val in sorted(despesas_por_cat.items()):
+        dre_rows.append({"Conta": f"  {cat}", "Valor": fmt(-val), "_sort": sort_idx, "_bold": False})
+        sort_idx += 1
+    
+    dre_rows.append({"Conta": "", "Valor": "", "_sort": sort_idx, "_bold": False})
+    sort_idx += 1
+    dre_rows.append({"Conta": "═══════════════════════════════════", "Valor": "══════════════", "_sort": sort_idx, "_bold": False})
+    sort_idx += 1
+    dre_rows.append({"Conta": "= RESULTADO OPERACIONAL (LUCRO/PREJUÍZO)", "Valor": fmt(resultado_operacional), "_sort": sort_idx, "_bold": True})
+    
+    # Display
+    df_dre = pd.DataFrame(dre_rows)
+    st.dataframe(
+        df_dre[["Conta", "Valor"]],
+        use_container_width=True,
+        hide_index=True,
+        height=35 * len(dre_rows) + 38
+    )
+    
+    # Visual summary
+    if not embedded:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Receita Bruta", fmt(receita_bruta))
+        c2.metric("Despesas Totais", fmt(despesas_total))
+        
+        delta_color = "normal" if resultado_operacional >= 0 else "inverse"
+        c3.metric("Resultado", fmt(resultado_operacional), delta=f"{(resultado_operacional/receita_bruta*100):.1f}% margem" if receita_bruta > 0 else "N/A", delta_color=delta_color)
 
 def receitas_despesas_tab():
     st.header("💰 Receitas e Despesas")
@@ -922,7 +1090,7 @@ def receitas_despesas_tab():
     
     db = DatabaseManager()
     
-    tab_receitas, tab_despesas = st.tabs(["📈 Receitas", "📉 Despesas"])
+    tab_receitas, tab_despesas, tab_dre = st.tabs(["📈 Receitas", "📉 Despesas", "📊 DRE"])
     
     # ========== RECEITAS ==========
     with tab_receitas:
@@ -1187,6 +1355,9 @@ def receitas_despesas_tab():
             
             _render_financial_history(df, hoje, "despesas")
 
+    # ========== DRE ==========
+    with tab_dre:
+        _render_dre(db, embedded=False)
 
 def _render_financial_history(df, hoje, prefix):
     """Shared period filter + table renderer for both Receitas and Despesas."""
