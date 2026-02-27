@@ -83,13 +83,15 @@ def locatarios_tab():
                      
                      for tx in manual_txs:
                          tipo_label = "Receita" if tx[2] in ('entrada', 'entrada_liquida') else "Despesa"
+                         tx_status = tx[5] if tx[5] else "recebido"  # Legacy entries may have empty status
+                         tx_origem = tx[1] if tx[1] else "Manual"
                          fin_rows.append({
                              "id": tx[0],
-                             "origem": f"Manual ({tipo_label})",
+                             "origem": f"{tx_origem} ({tipo_label})",
                              "valor": float(tx[3]),
                              "valor_liquido": float(tx[3]),
                              "data": str(tx[4]),
-                             "status": tx[5],
+                             "status": tx_status,
                              "tipo": tx[2],
                              "editavel": True
                          })
